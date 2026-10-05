@@ -70,4 +70,13 @@ class AssignmentPolicyTest {
         assertEquals("OPERATOR_INACTIVE", assertThrows(ConflictException.class,
                 () -> AssignmentPolicy.check(inactive, MONDAY_MORNING, List.of(), BOOKING, List.of())).code());
     }
+
+    @Test
+    @DisplayName("blockingReason da el mismo motivo que check, sin lanzar (para mostrar quien esta disponible)")
+    void blockingReason() {
+        assertEquals(null, AssignmentPolicy.blockingReason(OPERATOR, MONDAY_MORNING, List.of(), BOOKING, List.of()));
+        assertEquals("OPERATOR_NOT_ON_SHIFT", AssignmentPolicy.blockingReason(OPERATOR, List.of(), List.of(), BOOKING, List.of()));
+        Operator inactive = Operator.restore(4, 40L, LocalDate.of(2026, 1, 1), false);
+        assertEquals("OPERATOR_INACTIVE", AssignmentPolicy.blockingReason(inactive, MONDAY_MORNING, List.of(), BOOKING, List.of()));
+    }
 }

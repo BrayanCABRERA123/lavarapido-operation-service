@@ -28,6 +28,14 @@ public interface OperationsUseCase {
     record AssignmentView(long bookingId, int operatorId, String operatorName, ExecutionStatus status) {
     }
 
+    /**
+     * Operario visto como candidato para una reserva: si se le puede asignar y, si no, el codigo
+     * del motivo (OPERATOR_INACTIVE, OPERATOR_NOT_ON_SHIFT, OPERATOR_ABSENT, OPERATOR_BUSY).
+     */
+    record CandidateView(int operatorId, String fullName, Double averageRating, int ratingsCount,
+                         boolean assigned, String unavailableReason) {
+    }
+
     /** Servicio de un operario: la reserva y el estado de su ejecucion. */
     record OperatorServiceView(BookingSnapshot booking, ExecutionStatus status, Instant startedAt,
                                Instant finishedAt, Short rating, String comment) {
@@ -55,6 +63,9 @@ public interface OperationsUseCase {
 
     /** Asigna (o cambia) el operario de todas las lineas de la reserva (RF-008/009). */
     AssignmentView assign(long bookingId, int operatorId, long adminId);
+
+    /** Todos los operarios con su disponibilidad real para esa reserva (mismas reglas que assign). */
+    List<CandidateView> candidates(long bookingId);
 
     /** Asignaciones de las reservas que empiezan entre from y to. */
     List<AssignmentView> assignments(LocalDate from, LocalDate to);

@@ -4,6 +4,7 @@ import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.AssignmentView;
+import com.lavarapido.operations.domain.port.in.OperationsUseCase.CandidateView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorServiceView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.RatingView;
@@ -85,6 +86,16 @@ public final class OperationsDtos {
 
         public static AssignmentResponse from(AssignmentView view) {
             return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(), view.status().name());
+        }
+    }
+
+    /** Operario candidato para una reserva: available false trae el codigo del motivo. */
+    public record CandidateResponse(int operatorId, String fullName, Double averageRating, int ratingsCount,
+                                    boolean assigned, boolean available, String unavailableReason) {
+
+        public static CandidateResponse from(CandidateView view) {
+            return new CandidateResponse(view.operatorId(), view.fullName(), view.averageRating(), view.ratingsCount(),
+                    view.assigned(), view.unavailableReason() == null, view.unavailableReason());
         }
     }
 

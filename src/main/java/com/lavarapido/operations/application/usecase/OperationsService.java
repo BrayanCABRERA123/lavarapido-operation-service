@@ -146,19 +146,10 @@ public class OperationsService implements OperationsUseCase {
         }
         Operator operator = requireOperator(operatorId);
 
-        // reservas de ese dia que el operario ya tiene (sin esta)
-        List<BookingSnapshot> sameDay = bookings.forAdmin(booking.date(), booking.date()).stream()
-                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
-                .toList();
-        Set<Long> operatorLines = executions.findByLineIds(sameDay.stream().flatMap(b -> b.lineIds().stream()).toList())
-                .stream().filter(e -> e.operatorId() == operatorId).map(ServiceExecution::bookingServiceId)
-                .collect(Collectors.toSet());
-        List<BookingSnapshot> busyWith = sameDay.stream()
-                .filter(other -> other.lineIds().stream().anyMatch(operatorLines::contains))
-                .toList();
-
+        List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
         AssignmentPolicy.check(operator, operators.availability(operatorId),
-                operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking, busyWith);
+                operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking,
+                busyWith(sameDay, executionsOf(sameDay), operatorId));
 
         Map<Long, ServiceExecution> existing = executions.findByLineIds(booking.lineIds()).stream()
                 .collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity()));
@@ -177,6 +168,52 @@ public class OperationsService implements OperationsUseCase {
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
         return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING);
+    }
+
+    @Override
+    public List<CandidateView> candidates(long bookingId) {
+        BookingSnapshot booking = bookings.forAdmin(bookingId)
+                .orElseThrow(() -> new NotFoundException("BOOKING_NOT_FOUND", "Booking not found"));
+        if (!ASSIGNABLE.contains(booking.status())) {
+            throw new ConflictException("BOOKING_NOT_ASSIGNABLE", "Only a booking that has not started can be assigned");
+        }
+        List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
+        List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
+        Set<Integer> current = executions.findByLineIds(booking.lineIds()).stream()
+                .map(ServiceExecution::operatorId).collect(Collectors.toSet());
+
+        List<CandidateView> result = new ArrayList<>();
+        for (OperatorView view : operators()) {
+            int id = view.operatorId();
+            String reason = AssignmentPolicy.blockingReason(requireOperator(id), operators.availability(id),
+                    operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking,
+                    busyWith(sameDay, sameDayExecutions, id));
+            result.add(new CandidateView(id, view.fullName(), view.averageRating(), view.ratingsCount(),
+                    current.contains(id), reason));
+        }
+        // primero los que se pueden asignar
+        result.sort(Comparator.comparing((CandidateView c) -> c.unavailableReason() != null)
+                .thenComparing(CandidateView::fullName, String.CASE_INSENSITIVE_ORDER));
+        return result;
+    }
+
+    /** reservas de ese dia, sin esta, que todavia ocupan a alguien */
+    private List<BookingSnapshot> otherBookingsSameDay(BookingSnapshot booking) {
+        return bookings.forAdmin(booking.date(), booking.date()).stream()
+                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
+                .toList();
+    }
+
+    private List<ServiceExecution> executionsOf(List<BookingSnapshot> list) {
+        return executions.findByLineIds(list.stream().flatMap(b -> b.lineIds().stream()).toList());
+    }
+
+    /** reservas de la lista que ya tiene el operario */
+    private static List<BookingSnapshot> busyWith(List<BookingSnapshot> sameDay, List<ServiceExecution> sameDayExecutions,
+                                                  int operatorId) {
+        Set<Long> operatorLines = sameDayExecutions.stream().filter(e -> e.operatorId() == operatorId)
+                .map(ServiceExecution::bookingServiceId).collect(Collectors.toSet());
+        return sameDay.stream().filter(other -> other.lineIds().stream().anyMatch(operatorLines::contains)).toList();
     }
 
     @Override

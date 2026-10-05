@@ -6,6 +6,7 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ActiveRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignmentResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.CandidateResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AvailabilityRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorServiceResponse;
@@ -93,6 +94,12 @@ final class OperationsControllers {
         AssignmentResponse assign(@AuthenticationPrincipal Jwt jwt, @PathVariable long bookingId,
                                   @Valid @RequestBody AssignRequest request) {
             return AssignmentResponse.from(operations.assign(bookingId, request.operatorId(), AuthenticatedUser.userId(jwt)));
+        }
+
+        /** Operarios con su disponibilidad real para esa reserva (turno, ausencias, cruces y estado). */
+        @GetMapping("/assignments/{bookingId}/candidates")
+        List<CandidateResponse> candidates(@PathVariable long bookingId) {
+            return operations.candidates(bookingId).stream().map(CandidateResponse::from).toList();
         }
 
         /** Quien tiene cada reserva que empieza entre from y to (sin fechas: hoy). */
