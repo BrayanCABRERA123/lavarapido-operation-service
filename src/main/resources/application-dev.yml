@@ -1,0 +1,12 @@
+# Solo para desarrollo local (perfil por defecto en application.yml).
+
+# Documentación interactiva: http://localhost:3004/swagger-ui.html
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    tags-sorter: alpha
+    operations-sorter: method
+    # conserva el token entre recargas de la página
+    persist-authorization: true

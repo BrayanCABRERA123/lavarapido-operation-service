@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Changelog del operations-service: solo el esquema `execution` (ADR-009).
+  Los archivos corren en el orden de esta lista. Cada changeset tiene una precondición, así se
+  marca como ejecutado en vez de fallar cuando el script completo ya creó el objeto.
+
+  Numeración global del proyecto (migration-strategy.md):
+    007  esquema y tablas del operations-service (+ triggers)
+    105  seed de estados de ejecución
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <include file="db/changelog/007-create-execution-schema.sql"/>
+    <include file="db/changelog/seed/105-seed-execution-status.sql"/>
+
+</databaseChangeLog>
