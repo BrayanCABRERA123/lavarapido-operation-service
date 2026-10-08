@@ -138,7 +138,7 @@ class BookingServiceDirectory implements BookingDirectory {
     // forma del JSON de booking-service (solo los campos que se usan)
     record BookingJson(long id, String code, String status, LocalDate date, LocalTime startTime, LocalTime endTime,
                        Instant scheduledStart, Instant scheduledEnd, Long ownerUserId, VehicleJson vehicle,
-                       BigDecimal total, List<LineJson> services) {
+                       BigDecimal total, List<LineJson> services, BayJson bay) {
 
         BookingSnapshot toSnapshot() {
             String vehicleName = vehicle == null ? "" : vehicle.label();
@@ -148,7 +148,7 @@ class BookingServiceDirectory implements BookingDirectory {
                     .toList();
             return new BookingSnapshot(id, code, status, date, startTime, endTime, scheduledStart, scheduledEnd,
                     ownerUserId, vehicleName, vehicle == null ? "" : nullToEmpty(vehicle.licensePlateFormatted()),
-                    total == null ? BigDecimal.ZERO : total, lines);
+                    total == null ? BigDecimal.ZERO : total, lines, bay == null ? null : bay.toBay());
         }
     }
 
@@ -161,6 +161,14 @@ class BookingServiceDirectory implements BookingDirectory {
     }
 
     record LineJson(Long lineId, String name) {
+    }
+
+    // mismo shape que ScheduleDtos.BayResponse en booking-service
+    record BayJson(short id, String code, String name, String status) {
+
+        BookingSnapshot.Bay toBay() {
+            return new BookingSnapshot.Bay(id, code, name);
+        }
     }
 
     private static String nullToEmpty(String value) {
