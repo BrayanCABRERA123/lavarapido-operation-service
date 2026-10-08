@@ -167,7 +167,7 @@ public class OperationsService implements OperationsUseCase {
 
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
-        return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING);
+        return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay());
     }
 
     @Override
@@ -230,7 +230,8 @@ public class OperationsService implements OperationsUseCase {
             List<ServiceExecution> lines = booking.lineIds().stream().map(byLine::get).filter(e -> e != null).toList();
             if (lines.isEmpty()) continue;
             int operatorId = lines.getFirst().operatorId();
-            result.add(new AssignmentView(booking.id(), operatorId, names.getOrDefault(operatorId, ""), statusOf(lines)));
+            result.add(new AssignmentView(booking.id(), operatorId, names.getOrDefault(operatorId, ""),
+                    statusOf(lines), booking.bay()));
         }
         return result;
     }
