@@ -73,7 +73,8 @@ class OperationsServiceTest {
         return new BookingSnapshot(50L, "RES-000050", status, LocalDate.of(2026, 10, 5), LocalTime.of(9, 0),
                 LocalTime.of(10, 0), Instant.parse("2026-10-05T14:00:00Z"), Instant.parse("2026-10-05T15:00:00Z"),
                 CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
-                List.of(new BookingSnapshot.Line(500L, "Premium"), new BookingSnapshot.Line(501L, "Encerado")));
+                List.of(new BookingSnapshot.Line(500L, "Premium"), new BookingSnapshot.Line(501L, "Encerado")),
+                new BookingSnapshot.Bay((short) 1, "BAY-01", "Bahía 1"));
     }
 
     @Test

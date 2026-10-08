@@ -32,7 +32,7 @@ class AssignmentPolicyTest {
         Instant to = Instant.parse(end);
         return new BookingSnapshot(id, "RES-" + id, "CONFIRMED", LocalDate.of(2026, 10, 5),
                 LocalTime.of(9, 0), LocalTime.of(10, 0), from, to, 7L, "Mazda 3", "ABC-123",
-                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(100 + id, "Premium")));
+                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(100 + id, "Premium")), null);
     }
 
     @Test
