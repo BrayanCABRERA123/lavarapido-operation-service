@@ -82,10 +82,20 @@ public final class OperationsDtos {
         }
     }
 
-    public record AssignmentResponse(long bookingId, int operatorId, String operatorName, String status) {
+    /** La bahia de esa reserva; null si todavia no se asigno ninguna. */
+    public record BayResponse(short id, String code, String name) {
+
+        public static BayResponse from(BookingSnapshot.Bay bay) {
+            return bay == null ? null : new BayResponse(bay.id(), bay.code(), bay.name());
+        }
+    }
+
+    public record AssignmentResponse(long bookingId, int operatorId, String operatorName, String status,
+                                     BayResponse bay) {
 
         public static AssignmentResponse from(AssignmentView view) {
-            return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(), view.status().name());
+            return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(),
+                    view.status().name(), BayResponse.from(view.bay()));
         }
     }
 
