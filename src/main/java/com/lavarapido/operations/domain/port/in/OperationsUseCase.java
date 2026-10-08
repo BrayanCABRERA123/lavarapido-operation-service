@@ -24,8 +24,13 @@ public interface OperationsUseCase {
                         Double averageRating, int ratingsCount) {
     }
 
-    /** Quien tiene asignada una reserva y como va (estado de sus lineas). */
-    record AssignmentView(long bookingId, int operatorId, String operatorName, ExecutionStatus status) {
+    /**
+     * Quien tiene asignada una reserva y como va (estado de sus lineas). bay es la bahia de ESA
+     * reserva (booking.service_bay_id): el operario no esta fijo a una bahia (ADR-010), la pareja
+     * cambia reserva por reserva; esto es lo que permite ver "quien esta en cual bahia ahora".
+     */
+    record AssignmentView(long bookingId, int operatorId, String operatorName, ExecutionStatus status,
+                          BookingSnapshot.Bay bay) {
     }
 
     /**
