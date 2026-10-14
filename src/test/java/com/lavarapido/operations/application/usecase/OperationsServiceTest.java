@@ -79,6 +79,21 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("no se asigna una reserva cuya hora ya pasó (ej. una de hace una semana que nunca se cerró)")
+    void pastBookingIsNotAssignable() {
+        BookingSnapshot lastWeek = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 9, 28),
+                LocalTime.of(9, 0), LocalTime.of(10, 0), Instant.parse("2026-09-28T14:00:00Z"),
+                Instant.parse("2026-09-28T15:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(510L, "Premium")), null);
+        given(bookings.forAdmin(51L)).willReturn(Optional.of(lastWeek));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN));
+
+        assertEquals("BOOKING_IN_PAST", error.code());
+        verify(events, never()).publish(any());
+    }
+
+    @Test
     @DisplayName("asignar crea una ejecucion pendiente por linea y avisa a operario y cliente")
     void assignCreatesExecutions() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));

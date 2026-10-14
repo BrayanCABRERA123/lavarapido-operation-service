@@ -145,6 +145,10 @@ public class OperationsService implements OperationsUseCase {
         if (!ASSIGNABLE.contains(booking.status())) {
             throw new ConflictException("BOOKING_NOT_ASSIGNABLE", "Only a booking that has not started can be assigned");
         }
+        // una reserva cuya hora ya pasó no se asigna (quedaría un "nuevo servicio" de días atrás)
+        if (!booking.scheduledEnd().isAfter(clock.instant())) {
+            throw new ConflictException("BOOKING_IN_PAST", "A booking whose time has already passed cannot be assigned");
+        }
         Operator operator = requireOperator(operatorId);
 
         List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
