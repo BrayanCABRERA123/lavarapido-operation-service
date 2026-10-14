@@ -279,6 +279,21 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("el cliente ve solo los operarios libres en su horario, con el primer nombre")
+    void availableOperatorsForTheClient() {
+        twoOperatorsOnShiftMonday();
+        given(operators.availability(4)).willReturn(List.of());
+        given(executions.findRated(anyInt())).willReturn(List.of());
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", true)));
+
+        var free = service.availableOperators(LocalDate.of(2026, 10, 5), LocalTime.of(11, 0), 60);
+
+        assertEquals(1, free.size());
+        assertEquals(3, free.getFirst().operatorId());
+        assertEquals("Oscar", free.getFirst().firstName());
+    }
+
+    @Test
     @DisplayName("una cuenta desactivada en security no recibe servicios aunque su fila de operario siga activa")
     void disabledAccountsAreNotAssigned() {
         twoOperatorsOnShiftMonday();

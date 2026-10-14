@@ -10,6 +10,7 @@ import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,6 +58,10 @@ public interface OperationsUseCase {
                       String clientName) {
     }
 
+    /** Operario libre para un horario, como lo ve el cliente al reservar (RF-010): solo el primer nombre. */
+    record AvailableOperatorView(int operatorId, String firstName, Double averageRating, int ratingsCount) {
+    }
+
     // ------------------------------------------------------------------ automático (RF-008/010)
 
     /**
@@ -65,6 +70,9 @@ public interface OperationsUseCase {
      * nadie está libre (el administrador recibe la alerta de reserva sin operario).
      */
     Optional<AssignmentView> autoAssign(long bookingId, Long customerUserId, Integer preferredOperatorId);
+
+    /** Operarios libres para ese horario (RF-010): activos, con turno, sin ausencia y sin otra reserva. */
+    List<AvailableOperatorView> availableOperators(LocalDate date, LocalTime time, int minutes);
 
     // ------------------------------------------------------------------ admin
 
