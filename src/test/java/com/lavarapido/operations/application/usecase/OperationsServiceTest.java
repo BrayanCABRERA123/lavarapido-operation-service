@@ -79,6 +79,23 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("una reserva cancelada no aparece como asignación pendiente del operario")
+    void cancelledBookingIsNotListedAsAssignment() {
+        BookingSnapshot cancelled = new BookingSnapshot(52L, "RES-000052", "CANCELLED", LocalDate.of(2026, 10, 5),
+                LocalTime.of(11, 0), LocalTime.of(12, 0), Instant.parse("2026-10-05T16:00:00Z"),
+                Instant.parse("2026-10-05T17:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(520L, "Premium")), null);
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED"), cancelled));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 520L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        List<AssignmentView> assignments = service.assignments(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5));
+
+        assertEquals(List.of(50L), assignments.stream().map(AssignmentView::bookingId).toList());
+    }
+
+    @Test
     @DisplayName("no se asigna una reserva cuya hora ya pasó (ej. una de hace una semana que nunca se cerró)")
     void pastBookingIsNotAssignable() {
         BookingSnapshot lastWeek = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 9, 28),

@@ -232,6 +232,8 @@ public class OperationsService implements OperationsUseCase {
         Map<Integer, String> names = operatorNames();
         List<AssignmentView> result = new ArrayList<>();
         for (BookingSnapshot booking : list) {
+            // una reserva cancelada ya no ocupa al operario: no se lista como asignación pendiente
+            if ("CANCELLED".equals(booking.status())) continue;
             List<ServiceExecution> lines = booking.lineIds().stream().map(byLine::get).filter(e -> e != null).toList();
             if (lines.isEmpty()) continue;
             int operatorId = lines.getFirst().operatorId();
