@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Casos de uso del operations-service. El id de quien llama sale del token (userId); el rol ya
@@ -55,6 +56,15 @@ public interface OperationsUseCase {
                       String plate, short rating, String comment, Instant ratedAt, String operatorName,
                       String clientName) {
     }
+
+    // ------------------------------------------------------------------ automático (RF-008/010)
+
+    /**
+     * Asigna sola una reserva recién confirmada: al operario que eligió el cliente si está libre, o al
+     * libre con menos reservas ese día. No hace nada si ya tiene operario, si no es asignable o si
+     * nadie está libre (el administrador recibe la alerta de reserva sin operario).
+     */
+    Optional<AssignmentView> autoAssign(long bookingId, Long customerUserId, Integer preferredOperatorId);
 
     // ------------------------------------------------------------------ admin
 

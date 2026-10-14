@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Cuentas con rol OPERATOR en security-service (/admin/users?role=OPERATOR). Solo el admin puede
@@ -39,8 +40,13 @@ class SecurityUserDirectory implements UserDirectory {
 
     @Override
     public String firstNameOf(long userId) {
+        return contactOf(userId).map(ContactSnapshot::firstName).orElse("");
+    }
+
+    @Override
+    public Optional<ContactSnapshot> contactOf(long userId) {
         if (internalKey.isEmpty()) {
-            return "";
+            return Optional.empty();
         }
         try {
             ContactJson contact = internal.get()
@@ -48,14 +54,15 @@ class SecurityUserDirectory implements UserDirectory {
                     .header("X-Internal-Key", internalKey)
                     .retrieve()
                     .body(ContactJson.class);
-            return contact == null ? "" : nullToEmpty(contact.firstName()).strip();
+            return contact == null ? Optional.empty()
+                    : Optional.of(new ContactSnapshot(nullToEmpty(contact.firstName()).strip(), contact.active()));
         } catch (RestClientException e) {
-            log.warn("Could not read the name of user {} from security-service: {}", userId, e.getMessage());
-            return "";
+            log.warn("Could not read the contact of user {} from security-service: {}", userId, e.getMessage());
+            return Optional.empty();
         }
     }
 
-    record ContactJson(String firstName) {
+    record ContactJson(String firstName, boolean active) {
     }
 
     @Override

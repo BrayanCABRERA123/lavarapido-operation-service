@@ -72,6 +72,14 @@ app:
     # reservas: se leen y se mueven con el token de quien llama (REST, ADR-004)
     base-url: ${BOOKING_SERVICE_URL:http://localhost:3003/api/v1}
     timeout: ${BOOKING_SERVICE_TIMEOUT:3s}
+    # sin usuario detrás (asignación automática RF-008, operarios libres RF-010): rutas internas de
+    # booking con la llave compartida (no pasan por el gateway)
+    internal-url: ${BOOKING_INTERNAL_URL:http://localhost:3003}
+    internal-key: ${INTERNAL_API_KEY:}
+  # RF-008: al confirmarse una reserva se asigna sola al operario libre (o al que eligió el cliente).
+  # false: el administrador asigna a mano, como antes
+  auto-assign:
+    enabled: ${AUTO_ASSIGN_ENABLED:true}
   security-service:
     # nombre y contacto de los operarios (solo con token de admin)
     base-url: ${SECURITY_SERVICE_URL:http://localhost:3001/api/v1}

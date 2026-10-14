@@ -20,6 +20,7 @@ import com.lavarapido.operations.domain.port.out.OperatorRepository;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
+import com.lavarapido.operations.domain.service.AutoAssignmentPolicy;
 import com.lavarapido.operations.domain.service.OperatorMetricsCalculator;
 import com.lavarapido.operations.domain.service.StartPolicy;
 import com.lavarapido.operations.domain.service.TeamSummaryCalculator;
@@ -54,6 +55,8 @@ public class OperationsService implements OperationsUseCase {
 
     // estados de reserva en los que se puede asignar o cambiar el operario
     private static final Set<String> ASSIGNABLE = Set.of("SCHEDULED", "CONFIRMED");
+    // la asignación automática la hace el sistema, no un usuario
+    private static final long SYSTEM_ACTOR = 0L;
     // historial de calificaciones del operario: lo que booking deja listar por consulta
     private static final int RATINGS_DAYS = 60;
 
@@ -208,6 +211,51 @@ public class OperationsService implements OperationsUseCase {
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
         return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay());
+    }
+
+    @Override
+    public Optional<AssignmentView> autoAssign(long bookingId, Long customerUserId, Integer preferredOperatorId) {
+        Optional<BookingSnapshot> found = bookings.forService(bookingId);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        BookingSnapshot booking = found.get();
+        if (!ASSIGNABLE.contains(booking.status()) || !booking.scheduledEnd().isAfter(clock.instant())) {
+            return Optional.empty();
+        }
+        // una reprogramación conserva al operario que ya tenía; lo cambia el administrador si hace falta
+        if (!executions.findByLineIds(booking.lineIds()).isEmpty()) {
+            return Optional.empty();
+        }
+        List<BookingSnapshot> sameDay = bookings.forService(booking.date(), booking.date()).stream()
+                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
+                .toList();
+        List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
+        List<AutoAssignmentPolicy.Candidate> free = new ArrayList<>();
+        for (Operator operator : operators.findAll()) {
+            int id = operator.id();
+            List<BookingSnapshot> busy = busyWith(sameDay, sameDayExecutions, id);
+            String reason = AssignmentPolicy.blockingReason(operator, operators.availability(id),
+                    operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking, busy);
+            if (reason == null && accountActive(operator)) {
+                free.add(new AutoAssignmentPolicy.Candidate(id, busy.size()));
+            }
+        }
+        Optional<Integer> chosen = AutoAssignmentPolicy.choose(free, preferredOperatorId);
+        if (chosen.isEmpty()) {
+            return Optional.empty();
+        }
+        Operator operator = requireOperator(chosen.get());
+        executions.saveAll(booking.lineIds().stream().map(line -> ServiceExecution.assign(line, operator.id())).toList(),
+                SYSTEM_ACTOR);
+        events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
+                customerUserId, operator.userId(), booking.scheduledStart(), clock.instant()));
+        return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay()));
+    }
+
+    /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
+    private boolean accountActive(Operator operator) {
+        return users.contactOf(operator.userId()).map(UserDirectory.ContactSnapshot::active).orElse(true);
     }
 
     @Override
