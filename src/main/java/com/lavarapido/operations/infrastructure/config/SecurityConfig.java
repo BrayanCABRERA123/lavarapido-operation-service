@@ -32,6 +32,8 @@ import java.util.List;
 class SecurityConfig {
 
     private static final String[] PUBLIC_GET_ENDPOINTS = {
+            // informe de inspeccion publicado: el cliente lo abre sin sesion con el token del enlace
+            "/api/v1/public/inspections/**",
             "/actuator/health",
             "/actuator/health/**",
             "/actuator/info"
