@@ -7,6 +7,7 @@ import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.ExecutionStatus;
+import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
 import com.lavarapido.operations.domain.model.Operator;
 import com.lavarapido.operations.domain.model.ServiceExecution;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
@@ -18,11 +19,13 @@ import com.lavarapido.operations.domain.port.out.OperatorRepository;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
+import com.lavarapido.operations.domain.service.OperatorMetricsCalculator;
 import com.lavarapido.operations.domain.service.StartPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -72,6 +75,16 @@ public class OperationsService implements OperationsUseCase {
     }
 
     // ================================================================== admin
+
+    @Override
+    public OperatorWeekMetrics metrics(int operatorId, LocalDate weekOf) {
+        Operator operator = requireOperator(operatorId);
+        // semana de lunes a domingo en la hora del lavadero; se trae también la anterior para la tendencia
+        LocalDate weekStart = (weekOf == null ? today() : weekOf).with(DayOfWeek.MONDAY);
+        List<BookingSnapshot> bookingsOfTwoWeeks = bookings.forAdmin(weekStart.minusDays(7), weekStart.plusDays(6));
+        return OperatorMetricsCalculator.compute(weekStart, bookingsOfTwoWeeks, executions.findByOperator(operator.id()),
+                operators.availability(operator.id()));
+    }
 
     @Override
     public List<OperatorView> operators() {

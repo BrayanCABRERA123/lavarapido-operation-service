@@ -2,6 +2,7 @@ package com.lavarapido.operations.infrastructure.adapter.in.web.dto;
 
 import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
+import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.AssignmentView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.CandidateView;
@@ -61,6 +62,19 @@ public final class OperationsDtos {
 
         static ShiftResponse from(WeeklyAvailability shift) {
             return new ShiftResponse(shift.dayOfWeek(), shift.startsAt(), shift.endsAt());
+        }
+    }
+
+    /** Métricas semanales de un operario (OperatorMetricsCalculator); los null son "sin datos". */
+    public record OperatorMetricsResponse(LocalDate weekStart, LocalDate weekEnd, int completedServices,
+                                          int previousWeekServices, Integer servicesTrendPercent,
+                                          Integer punctualityPercent, String punctualityLevel, BigDecimal revenue,
+                                          double workedHours, double availableHours, Integer occupancyPercent) {
+
+        public static OperatorMetricsResponse from(OperatorWeekMetrics m) {
+            return new OperatorMetricsResponse(m.weekStart(), m.weekEnd(), m.completedServices(),
+                    m.previousWeekServices(), m.servicesTrendPercent(), m.punctualityPercent(), m.punctualityLevel(),
+                    m.revenue(), m.workedHours(), m.availableHours(), m.occupancyPercent());
         }
     }
 

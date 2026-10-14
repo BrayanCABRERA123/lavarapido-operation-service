@@ -8,6 +8,7 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignmentResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.CandidateResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AvailabilityRequest;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorMetricsResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorServiceResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingRequest;
@@ -53,6 +54,12 @@ final class OperationsControllers {
         @GetMapping("/operators")
         List<OperatorResponse> operators() {
             return operations.operators().stream().map(OperatorResponse::from).toList();
+        }
+
+        /** Servicios, puntualidad, ingresos y horas de la semana (week = cualquier día de esa semana). */
+        @GetMapping("/operators/{id}/metrics")
+        OperatorMetricsResponse metrics(@PathVariable int id, @RequestParam(required = false) LocalDate week) {
+            return OperatorMetricsResponse.from(operations.metrics(id, week));
         }
 
         @PatchMapping("/operators/{id}/status")
