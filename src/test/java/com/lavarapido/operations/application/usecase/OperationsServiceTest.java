@@ -44,7 +44,8 @@ import static org.mockito.Mockito.verify;
 @DisplayName("OperationsService (asignacion, ejecucion y calificacion)")
 class OperationsServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-10-05T12:00:00Z");
+    // 10 minutos antes de la reserva de prueba (14:00Z): ya se puede iniciar (StartPolicy)
+    private static final Instant NOW = Instant.parse("2026-10-05T13:50:00Z");
     private static final long ADMIN = 1L;
     private static final long OPERATOR_USER = 30L;
     private static final long CLIENT = 7L;

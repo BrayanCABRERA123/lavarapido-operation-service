@@ -18,6 +18,7 @@ import com.lavarapido.operations.domain.port.out.OperatorRepository;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
+import com.lavarapido.operations.domain.service.StartPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -261,13 +262,15 @@ public class OperationsService implements OperationsUseCase {
         Operator operator = operatorOf(operatorUserId);
         BookingSnapshot booking = requireOperatorBooking(bookingId);
         List<ServiceExecution> lines = myLines(booking, operator);
+        Instant now = clock.instant();
+        // no se inicia una reserva de otro día u otra hora: solo desde 15 minutos antes
+        StartPolicy.check(booking, now);
         // no puede llevar dos lavados a la vez (tr_service_execution_overlap del modelo)
         boolean busy = executions.findByOperator(operator.id()).stream()
                 .anyMatch(e -> e.status() == ExecutionStatus.IN_PROGRESS && !booking.lineIds().contains(e.bookingServiceId()));
         if (busy) {
             throw new ConflictException("OPERATOR_BUSY", "Finish the service in progress first");
         }
-        Instant now = clock.instant();
         lines.forEach(line -> line.start(now));
         bookings.advance(booking.id(), "IN_PROGRESS");
         executions.saveAll(lines, operatorUserId);
@@ -388,7 +391,7 @@ public class OperationsService implements OperationsUseCase {
     private static OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines) {
         ServiceExecution first = lines.getFirst();
         return new OperatorServiceView(booking, statusOf(lines), first.startedAt(), first.finishedAt(), first.rating(),
-                first.commentVisible() ? first.comment() : null);
+                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking));
     }
 
     private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName) {

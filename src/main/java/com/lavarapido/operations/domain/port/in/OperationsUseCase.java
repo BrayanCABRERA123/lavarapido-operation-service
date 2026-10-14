@@ -42,8 +42,9 @@ public interface OperationsUseCase {
     }
 
     /** Servicio de un operario: la reserva y el estado de su ejecucion. */
+    /** startableAt: desde cuándo se puede iniciar (StartPolicy, 15 minutos antes de la reserva). */
     record OperatorServiceView(BookingSnapshot booking, ExecutionStatus status, Instant startedAt,
-                               Instant finishedAt, Short rating, String comment) {
+                               Instant finishedAt, Short rating, String comment, Instant startableAt) {
     }
 
     /** Calificacion de una reserva (todas sus lineas tienen la misma). */
