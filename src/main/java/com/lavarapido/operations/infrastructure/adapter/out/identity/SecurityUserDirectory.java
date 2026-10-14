@@ -24,10 +24,38 @@ class SecurityUserDirectory implements UserDirectory {
     private static final int PAGE_SIZE = 100;
 
     private final RestClient client;
+    // contacto interno (/internal/v1/users/{id}/contact): no pasa por el gateway y pide la llave interna
+    private final RestClient internal;
+    private final String internalKey;
 
     SecurityUserDirectory(@Value("${app.security-service.base-url}") String baseUrl,
-                          @Value("${app.security-service.timeout:3s}") Duration timeout) {
+                          @Value("${app.security-service.timeout:3s}") Duration timeout,
+                          @Value("${app.security-service.internal-url:http://localhost:3001}") String internalUrl,
+                          @Value("${app.security-service.internal-key:}") String internalKey) {
         this.client = RestSupport.client(baseUrl, timeout);
+        this.internal = RestSupport.client(internalUrl, timeout);
+        this.internalKey = internalKey == null ? "" : internalKey.strip();
+    }
+
+    @Override
+    public String firstNameOf(long userId) {
+        if (internalKey.isEmpty()) {
+            return "";
+        }
+        try {
+            ContactJson contact = internal.get()
+                    .uri("/internal/v1/users/{id}/contact", userId)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(ContactJson.class);
+            return contact == null ? "" : nullToEmpty(contact.firstName()).strip();
+        } catch (RestClientException e) {
+            log.warn("Could not read the name of user {} from security-service: {}", userId, e.getMessage());
+            return "";
+        }
+    }
+
+    record ContactJson(String firstName) {
     }
 
     @Override

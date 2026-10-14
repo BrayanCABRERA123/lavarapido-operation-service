@@ -164,6 +164,21 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("la calificación lleva el primer nombre del operario (para el cliente) y del cliente (para el operario)")
+    void ratingShowsFirstNames() {
+        given(users.firstNameOf(OPERATOR_USER)).willReturn("Oscar");
+        given(users.firstNameOf(CLIENT)).willReturn("Ana");
+        given(bookings.forCustomer(50L)).willReturn(Optional.of(booking("COMPLETED")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.COMPLETED, NOW, NOW, null, null, null, true)));
+
+        RatingView view = service.rate(50L, 4, "Bien", CLIENT);
+
+        assertEquals("Oscar", view.operatorName());
+        assertEquals("Ana", view.clientName());
+    }
+
+    @Test
     @DisplayName("no se califica una reserva sin terminar ni la de otro cliente")
     void cannotRate() {
         given(bookings.forCustomer(50L)).willReturn(Optional.of(booking("CONFIRMED")));

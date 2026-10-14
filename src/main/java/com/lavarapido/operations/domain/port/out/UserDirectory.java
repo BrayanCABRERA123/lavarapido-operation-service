@@ -9,4 +9,11 @@ public interface UserDirectory {
     }
 
     List<UserSnapshot> operators();
+
+    /**
+     * Primer nombre de cualquier cuenta (cliente u operario) para mostrarlo en las calificaciones.
+     * Se lee del contacto interno de security-service con la llave interna, así funciona con el
+     * token de cualquier rol. Vacío si no se pudo leer (la pantalla muestra la placa).
+     */
+    String firstNameOf(long userId);
 }

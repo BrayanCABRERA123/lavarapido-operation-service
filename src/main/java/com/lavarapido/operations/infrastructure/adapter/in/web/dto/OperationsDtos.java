@@ -124,11 +124,12 @@ public final class OperationsDtos {
     }
 
     public record RatingResponse(long bookingId, String bookingCode, LocalDate date, String services, String vehicle,
-                                 String plate, short rating, String comment, Instant ratedAt, String operatorName) {
+                                 String plate, short rating, String comment, Instant ratedAt, String operatorName,
+                                 String clientName) {
 
         public static RatingResponse from(RatingView view) {
             return new RatingResponse(view.bookingId(), view.bookingCode(), view.date(), view.services(), view.vehicle(),
-                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName());
+                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName(), view.clientName());
         }
     }
 }

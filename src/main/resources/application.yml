@@ -71,6 +71,10 @@ app:
     # nombre y contacto de los operarios (solo con token de admin)
     base-url: ${SECURITY_SERVICE_URL:http://localhost:3001/api/v1}
     timeout: ${SECURITY_SERVICE_TIMEOUT:3s}
+    # primer nombre de clientes y operarios en las calificaciones: contacto interno de security
+    # (no pasa por el gateway) con la misma llave que usa notification-service
+    internal-url: ${SECURITY_INTERNAL_URL:http://localhost:3001}
+    internal-key: ${INTERNAL_API_KEY:}
   # zona horaria del lavadero: turnos, ausencias y fechas se leen en esta hora
   zone: ${BOOKING_ZONE:America/Bogota}
 
