@@ -34,12 +34,45 @@ import java.util.function.Supplier;
 class BookingServiceDirectory implements BookingDirectory {
 
     private static final Logger log = LoggerFactory.getLogger(BookingServiceDirectory.class);
+    private static final String INTERNAL_HEADER = "X-Internal-Key";
 
     private final RestClient client;
+    // rutas internas de booking (/internal/v1/bookings): no pasan por el gateway y piden la llave
+    private final RestClient internal;
+    private final String internalKey;
 
     BookingServiceDirectory(@Value("${app.booking-service.base-url}") String baseUrl,
-                            @Value("${app.booking-service.timeout:3s}") Duration timeout) {
+                            @Value("${app.booking-service.timeout:3s}") Duration timeout,
+                            @Value("${app.booking-service.internal-url:http://localhost:3003}") String internalUrl,
+                            @Value("${app.booking-service.internal-key:}") String internalKey) {
         this.client = RestSupport.client(baseUrl, timeout);
+        this.internal = RestSupport.client(internalUrl, timeout);
+        this.internalKey = internalKey == null ? "" : internalKey.strip();
+    }
+
+    @Override
+    public Optional<BookingSnapshot> forService(long bookingId) {
+        requireInternalKey();
+        return one(() -> internal.get().uri("/internal/v1/bookings/{id}", bookingId)
+                .header(INTERNAL_HEADER, internalKey).retrieve().body(BookingJson.class));
+    }
+
+    @Override
+    public List<BookingSnapshot> forService(LocalDate from, LocalDate to) {
+        requireInternalKey();
+        return many(() -> internal.get()
+                .uri(uri -> uri.path("/internal/v1/bookings").queryParam("from", from).queryParam("to", to).build())
+                .header(INTERNAL_HEADER, internalKey)
+                .retrieve()
+                .body(BookingJson[].class));
+    }
+
+    // sin llave no hay asignación automática ni lista de operarios libres: mejor fallar claro
+    private void requireInternalKey() {
+        if (internalKey.isEmpty()) {
+            throw new DependencyUnavailableException("BOOKING_SERVICE_UNAVAILABLE",
+                    "INTERNAL_API_KEY is not set: booking-service cannot be read without a user");
+        }
     }
 
     @Override

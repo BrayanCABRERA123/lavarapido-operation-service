@@ -24,6 +24,14 @@ public interface BookingDirectory {
 
     List<BookingSnapshot> mine();
 
+    /**
+     * Por la llave interna, sin usuario detrás: para asignar solo cuando se confirma una reserva
+     * (RF-008) y para mostrarle al cliente quién está libre (RF-010). Sin los datos del vehículo.
+     */
+    Optional<BookingSnapshot> forService(long bookingId);
+
+    List<BookingSnapshot> forService(LocalDate from, LocalDate to);
+
     /** El operario mueve la reserva: IN_PROGRESS al empezar, COMPLETED al terminar. */
     void advance(long bookingId, String status);
 }

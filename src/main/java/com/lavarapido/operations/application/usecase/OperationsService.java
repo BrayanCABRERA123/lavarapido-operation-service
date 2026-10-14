@@ -20,6 +20,7 @@ import com.lavarapido.operations.domain.port.out.OperatorRepository;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
+import com.lavarapido.operations.domain.service.AutoAssignmentPolicy;
 import com.lavarapido.operations.domain.service.OperatorMetricsCalculator;
 import com.lavarapido.operations.domain.service.StartPolicy;
 import com.lavarapido.operations.domain.service.TeamSummaryCalculator;
@@ -31,6 +32,7 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -54,6 +56,10 @@ public class OperationsService implements OperationsUseCase {
 
     // estados de reserva en los que se puede asignar o cambiar el operario
     private static final Set<String> ASSIGNABLE = Set.of("SCHEDULED", "CONFIRMED");
+    // la asignación automática la hace el sistema, no un usuario
+    private static final long SYSTEM_ACTOR = 0L;
+    private static final int MIN_SLOT_MINUTES = 15;
+    private static final int MAX_SLOT_MINUTES = 600;
     // historial de calificaciones del operario: lo que booking deja listar por consulta
     private static final int RATINGS_DAYS = 60;
 
@@ -208,6 +214,91 @@ public class OperationsService implements OperationsUseCase {
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
         return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay());
+    }
+
+    @Override
+    public Optional<AssignmentView> autoAssign(long bookingId, Long customerUserId, Integer preferredOperatorId) {
+        Optional<BookingSnapshot> found = bookings.forService(bookingId);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        BookingSnapshot booking = found.get();
+        if (!ASSIGNABLE.contains(booking.status()) || !booking.scheduledEnd().isAfter(clock.instant())) {
+            return Optional.empty();
+        }
+        // una reprogramación conserva al operario que ya tenía; lo cambia el administrador si hace falta
+        if (!executions.findByLineIds(booking.lineIds()).isEmpty()) {
+            return Optional.empty();
+        }
+        List<BookingSnapshot> sameDay = bookings.forService(booking.date(), booking.date()).stream()
+                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
+                .toList();
+        List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
+        List<AutoAssignmentPolicy.Candidate> free = new ArrayList<>();
+        for (Operator operator : operators.findAll()) {
+            int id = operator.id();
+            List<BookingSnapshot> busy = busyWith(sameDay, sameDayExecutions, id);
+            String reason = AssignmentPolicy.blockingReason(operator, operators.availability(id),
+                    operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking, busy);
+            if (reason == null && accountActive(operator)) {
+                free.add(new AutoAssignmentPolicy.Candidate(id, busy.size()));
+            }
+        }
+        Optional<Integer> chosen = AutoAssignmentPolicy.choose(free, preferredOperatorId);
+        if (chosen.isEmpty()) {
+            return Optional.empty();
+        }
+        Operator operator = requireOperator(chosen.get());
+        executions.saveAll(booking.lineIds().stream().map(line -> ServiceExecution.assign(line, operator.id())).toList(),
+                SYSTEM_ACTOR);
+        events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
+                customerUserId, operator.userId(), booking.scheduledStart(), clock.instant()));
+        return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay()));
+    }
+
+    /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
+    private boolean accountActive(Operator operator) {
+        return users.contactOf(operator.userId()).map(UserDirectory.ContactSnapshot::active).orElse(true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AvailableOperatorView> availableOperators(LocalDate date, LocalTime time, int minutes) {
+        if (date == null || time == null || minutes < MIN_SLOT_MINUTES || minutes > MAX_SLOT_MINUTES) {
+            throw new InvalidValueException("INVALID_SLOT", "Give the date, the time and a duration of 15 to 600 minutes");
+        }
+        Instant start = toInstant(date.atTime(time));
+        Instant end = toInstant(date.atTime(time).plusMinutes(minutes));
+        if (!end.isAfter(clock.instant())) {
+            return List.of();
+        }
+        // la reserva que el cliente está por hacer (todavía no existe: id 0)
+        BookingSnapshot slot = new BookingSnapshot(0, null, "CONFIRMED", date, time, time.plusMinutes(minutes),
+                start, end, null, "", "", null, List.of(), null);
+        List<BookingSnapshot> sameDay = bookings.forService(date, date).stream()
+                .filter(OperationsService::assignableOrRunning).toList();
+        List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
+        List<AvailableOperatorView> result = new ArrayList<>();
+        for (Operator operator : operators.findAll()) {
+            int id = operator.id();
+            String reason = AssignmentPolicy.blockingReason(operator, operators.availability(id),
+                    operators.absences(id, start, end), slot, busyWith(sameDay, sameDayExecutions, id));
+            if (reason != null) {
+                continue;
+            }
+            Optional<UserDirectory.ContactSnapshot> contact = users.contactOf(operator.userId());
+            if (contact.isPresent() && !contact.get().active()) {
+                continue;
+            }
+            List<ServiceExecution> rated = executions.findRated(id);
+            Double average = rated.isEmpty() ? null
+                    : Math.round(rated.stream().mapToInt(ServiceExecution::rating).average().orElse(0) * 10) / 10.0;
+            result.add(new AvailableOperatorView(id, contact.map(UserDirectory.ContactSnapshot::firstName).orElse(""),
+                    average, rated.size()));
+        }
+        result.sort(Comparator.comparing((AvailableOperatorView v) -> v.averageRating() == null ? 0 : -v.averageRating())
+                .thenComparing(AvailableOperatorView::firstName, String.CASE_INSENSITIVE_ORDER));
+        return result;
     }
 
     @Override

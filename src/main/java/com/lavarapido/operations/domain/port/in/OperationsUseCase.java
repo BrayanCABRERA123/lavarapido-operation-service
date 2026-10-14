@@ -10,7 +10,9 @@ import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Casos de uso del operations-service. El id de quien llama sale del token (userId); el rol ya
@@ -55,6 +57,22 @@ public interface OperationsUseCase {
                       String plate, short rating, String comment, Instant ratedAt, String operatorName,
                       String clientName) {
     }
+
+    /** Operario libre para un horario, como lo ve el cliente al reservar (RF-010): solo el primer nombre. */
+    record AvailableOperatorView(int operatorId, String firstName, Double averageRating, int ratingsCount) {
+    }
+
+    // ------------------------------------------------------------------ automático (RF-008/010)
+
+    /**
+     * Asigna sola una reserva recién confirmada: al operario que eligió el cliente si está libre, o al
+     * libre con menos reservas ese día. No hace nada si ya tiene operario, si no es asignable o si
+     * nadie está libre (el administrador recibe la alerta de reserva sin operario).
+     */
+    Optional<AssignmentView> autoAssign(long bookingId, Long customerUserId, Integer preferredOperatorId);
+
+    /** Operarios libres para ese horario (RF-010): activos, con turno, sin ausencia y sin otra reserva. */
+    List<AvailableOperatorView> availableOperators(LocalDate date, LocalTime time, int minutes);
 
     // ------------------------------------------------------------------ admin
 

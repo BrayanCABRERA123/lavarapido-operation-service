@@ -116,6 +116,18 @@ class OperationsApiWebTest {
     }
 
     @Test
+    void anySignedInUserCanSeeTheFreeOperators() throws Exception {
+        given(operations.availableOperators(any(), any(), anyInt())).willReturn(List.of());
+
+        mvc.perform(get("/api/v1/operators/available").param("date", "2026-10-20").param("time", "09:00")
+                        .param("minutes", "60"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/operators/available").param("date", "2026-10-20").param("time", "09:00")
+                        .param("minutes", "60").header("Authorization", token(7L, "CLIENT")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void businessErrorsCarryTheirCode() throws Exception {
         given(operations.assign(anyLong(), anyInt(), anyLong()))
                 .willThrow(new ConflictException("OPERATOR_BUSY", "busy"));

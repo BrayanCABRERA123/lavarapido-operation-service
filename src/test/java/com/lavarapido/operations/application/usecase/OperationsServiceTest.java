@@ -32,6 +32,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -233,5 +234,72 @@ class OperationsServiceTest {
         given(executions.findByOperator(4)).willReturn(List.of());
 
         assertEquals(4, service.operators().getFirst().operatorId());
+    }
+
+    // ------------------------------------------------------------------ RF-008 / RF-010
+
+    private final Operator second = Operator.restore(4, 40L, LocalDate.of(2026, 1, 1), true);
+
+    private void twoOperatorsOnShiftMonday() {
+        given(operators.findAll()).willReturn(List.of(operator, second));
+        given(operators.findById(4)).willReturn(Optional.of(second));
+        given(operators.availability(anyInt())).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+        given(bookings.forService(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forService(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+    }
+
+    @Test
+    @DisplayName("al confirmarse, la reserva se asigna sola al operario que eligió el cliente si está libre")
+    void autoAssignHonoursTheClientsChoice() {
+        twoOperatorsOnShiftMonday();
+
+        Optional<AssignmentView> assigned = service.autoAssign(50L, CLIENT, 4);
+
+        assertEquals(4, assigned.orElseThrow().operatorId());
+        verify(executions).saveAll(org.mockito.ArgumentMatchers.argThat(list -> list.size() == 2
+                && list.stream().allMatch(e -> e.operatorId() == 4)), anyLong());
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(40L, event.getValue().operatorUserId());
+        assertEquals(CLIENT, event.getValue().customerUserId());
+    }
+
+    @Test
+    @DisplayName("sin elección, al libre con menos reservas; si ya tenía operario no se toca")
+    void autoAssignLeastBusyAndKeepsAnExistingAssignment() {
+        twoOperatorsOnShiftMonday();
+        assertEquals(3, service.autoAssign(50L, CLIENT, null).orElseThrow().operatorId());
+
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        assertTrue(service.autoAssign(50L, CLIENT, 3).isEmpty());
+    }
+
+    @Test
+    @DisplayName("el cliente ve solo los operarios libres en su horario, con el primer nombre")
+    void availableOperatorsForTheClient() {
+        twoOperatorsOnShiftMonday();
+        given(operators.availability(4)).willReturn(List.of());
+        given(executions.findRated(anyInt())).willReturn(List.of());
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", true)));
+
+        var free = service.availableOperators(LocalDate.of(2026, 10, 5), LocalTime.of(11, 0), 60);
+
+        assertEquals(1, free.size());
+        assertEquals(3, free.getFirst().operatorId());
+        assertEquals("Oscar", free.getFirst().firstName());
+    }
+
+    @Test
+    @DisplayName("una cuenta desactivada en security no recibe servicios aunque su fila de operario siga activa")
+    void disabledAccountsAreNotAssigned() {
+        twoOperatorsOnShiftMonday();
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
+        given(users.contactOf(40L)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Ana", true)));
+
+        assertEquals(4, service.autoAssign(50L, CLIENT, 3).orElseThrow().operatorId());
     }
 }
