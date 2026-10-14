@@ -18,6 +18,7 @@ import com.lavarapido.operations.domain.port.out.OperatorRepository;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
+import com.lavarapido.operations.domain.service.StartPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -144,6 +145,10 @@ public class OperationsService implements OperationsUseCase {
         if (!ASSIGNABLE.contains(booking.status())) {
             throw new ConflictException("BOOKING_NOT_ASSIGNABLE", "Only a booking that has not started can be assigned");
         }
+        // una reserva cuya hora ya pasó no se asigna (quedaría un "nuevo servicio" de días atrás)
+        if (!booking.scheduledEnd().isAfter(clock.instant())) {
+            throw new ConflictException("BOOKING_IN_PAST", "A booking whose time has already passed cannot be assigned");
+        }
         Operator operator = requireOperator(operatorId);
 
         List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
@@ -261,13 +266,15 @@ public class OperationsService implements OperationsUseCase {
         Operator operator = operatorOf(operatorUserId);
         BookingSnapshot booking = requireOperatorBooking(bookingId);
         List<ServiceExecution> lines = myLines(booking, operator);
+        Instant now = clock.instant();
+        // no se inicia una reserva de otro día u otra hora: solo desde 15 minutos antes
+        StartPolicy.check(booking, now);
         // no puede llevar dos lavados a la vez (tr_service_execution_overlap del modelo)
         boolean busy = executions.findByOperator(operator.id()).stream()
                 .anyMatch(e -> e.status() == ExecutionStatus.IN_PROGRESS && !booking.lineIds().contains(e.bookingServiceId()));
         if (busy) {
             throw new ConflictException("OPERATOR_BUSY", "Finish the service in progress first");
         }
-        Instant now = clock.instant();
         lines.forEach(line -> line.start(now));
         bookings.advance(booking.id(), "IN_PROGRESS");
         executions.saveAll(lines, operatorUserId);
@@ -297,9 +304,12 @@ public class OperationsService implements OperationsUseCase {
                 .collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity()));
         if (rated.isEmpty()) return List.of();
         List<RatingView> result = new ArrayList<>();
+        // cada nombre se pide una sola vez a security-service (un cliente puede tener varias reservas)
+        Map<Long, String> clientNames = new HashMap<>();
+        String operatorName = users.firstNameOf(operator.userId());
         for (BookingSnapshot booking : bookings.forOperator(today().minusDays(RATINGS_DAYS), today())) {
             booking.lineIds().stream().map(rated::get).filter(e -> e != null).findFirst()
-                    .ifPresent(e -> result.add(ratingView(booking, e, nameOf(operator))));
+                    .ifPresent(e -> result.add(ratingView(booking, e, operatorName, clientNameOf(booking, clientNames))));
         }
         result.sort(Comparator.comparing(RatingView::ratedAt).reversed());
         return result;
@@ -322,8 +332,8 @@ public class OperationsService implements OperationsUseCase {
         Instant now = clock.instant();
         lines.forEach(line -> line.rate(rating, comment, now));
         executions.saveAll(lines, customerUserId);
-        String operatorName = operators.findById(lines.getFirst().operatorId()).map(this::nameOf).orElse("");
-        return ratingView(booking, lines.getFirst(), operatorName);
+        String operatorName = operatorFirstName(lines.getFirst().operatorId(), new HashMap<>());
+        return ratingView(booking, lines.getFirst(), operatorName, users.firstNameOf(customerUserId));
     }
 
     @Override
@@ -334,9 +344,11 @@ public class OperationsService implements OperationsUseCase {
                 .stream().filter(e -> e.rating() != null)
                 .collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity()));
         List<RatingView> result = new ArrayList<>();
+        // el cliente ve el primer nombre de quien lavó su vehículo
+        Map<Integer, String> operatorNames = new HashMap<>();
         for (BookingSnapshot booking : mine) {
             booking.lineIds().stream().map(byLine::get).filter(e -> e != null).findFirst()
-                    .ifPresent(e -> result.add(ratingView(booking, e, "")));
+                    .ifPresent(e -> result.add(ratingView(booking, e, operatorFirstName(e.operatorId(), operatorNames), "")));
         }
         return result;
     }
@@ -388,13 +400,24 @@ public class OperationsService implements OperationsUseCase {
     private static OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines) {
         ServiceExecution first = lines.getFirst();
         return new OperatorServiceView(booking, statusOf(lines), first.startedAt(), first.finishedAt(), first.rating(),
-                first.commentVisible() ? first.comment() : null);
+                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking));
     }
 
-    private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName) {
+    private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName,
+                                         String clientName) {
         return new RatingView(booking.id(), booking.code(), booking.date(), booking.servicesLabel(), booking.vehicle(),
                 booking.plate(), execution.rating(), execution.commentVisible() ? execution.comment() : null,
-                execution.ratedAt(), operatorName);
+                execution.ratedAt(), operatorName, clientName);
+    }
+
+    private String clientNameOf(BookingSnapshot booking, Map<Long, String> cache) {
+        Long owner = booking.ownerUserId();
+        return owner == null ? "" : cache.computeIfAbsent(owner, users::firstNameOf);
+    }
+
+    private String operatorFirstName(int operatorId, Map<Integer, String> cache) {
+        return cache.computeIfAbsent(operatorId, id -> operators.findById(id)
+                .map(operator -> users.firstNameOf(operator.userId())).orElse(""));
     }
 
     private OperatorView view(Operator operator, UserSnapshot user) {

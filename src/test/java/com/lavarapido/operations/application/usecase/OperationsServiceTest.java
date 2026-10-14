@@ -44,7 +44,8 @@ import static org.mockito.Mockito.verify;
 @DisplayName("OperationsService (asignacion, ejecucion y calificacion)")
 class OperationsServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-10-05T12:00:00Z");
+    // 10 minutos antes de la reserva de prueba (14:00Z): ya se puede iniciar (StartPolicy)
+    private static final Instant NOW = Instant.parse("2026-10-05T13:50:00Z");
     private static final long ADMIN = 1L;
     private static final long OPERATOR_USER = 30L;
     private static final long CLIENT = 7L;
@@ -75,6 +76,21 @@ class OperationsServiceTest {
                 CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
                 List.of(new BookingSnapshot.Line(500L, "Premium"), new BookingSnapshot.Line(501L, "Encerado")),
                 new BookingSnapshot.Bay((short) 1, "BAY-01", "Bahía 1"));
+    }
+
+    @Test
+    @DisplayName("no se asigna una reserva cuya hora ya pasó (ej. una de hace una semana que nunca se cerró)")
+    void pastBookingIsNotAssignable() {
+        BookingSnapshot lastWeek = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 9, 28),
+                LocalTime.of(9, 0), LocalTime.of(10, 0), Instant.parse("2026-09-28T14:00:00Z"),
+                Instant.parse("2026-09-28T15:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(510L, "Premium")), null);
+        given(bookings.forAdmin(51L)).willReturn(Optional.of(lastWeek));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN));
+
+        assertEquals("BOOKING_IN_PAST", error.code());
+        verify(events, never()).publish(any());
     }
 
     @Test
@@ -160,6 +176,21 @@ class OperationsServiceTest {
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(CLIENT));
         assertEquals(2, saved.getValue().stream().filter(e -> e.rating() != null).count());
+    }
+
+    @Test
+    @DisplayName("la calificación lleva el primer nombre del operario (para el cliente) y del cliente (para el operario)")
+    void ratingShowsFirstNames() {
+        given(users.firstNameOf(OPERATOR_USER)).willReturn("Oscar");
+        given(users.firstNameOf(CLIENT)).willReturn("Ana");
+        given(bookings.forCustomer(50L)).willReturn(Optional.of(booking("COMPLETED")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.COMPLETED, NOW, NOW, null, null, null, true)));
+
+        RatingView view = service.rate(50L, 4, "Bien", CLIENT);
+
+        assertEquals("Oscar", view.operatorName());
+        assertEquals("Ana", view.clientName());
     }
 
     @Test

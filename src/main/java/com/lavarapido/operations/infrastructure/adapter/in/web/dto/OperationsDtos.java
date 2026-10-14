@@ -113,22 +113,23 @@ public final class OperationsDtos {
     public record OperatorServiceResponse(long bookingId, String code, String bookingStatus, LocalDate date,
                                           LocalTime startTime, LocalTime endTime, String services, String vehicle,
                                           String plate, BigDecimal total, String status, Instant startedAt,
-                                          Instant finishedAt, Short rating, String comment) {
+                                          Instant finishedAt, Short rating, String comment, Instant startableAt) {
 
         public static OperatorServiceResponse from(OperatorServiceView view) {
             BookingSnapshot b = view.booking();
             return new OperatorServiceResponse(b.id(), b.code(), b.status(), b.date(), b.startTime(), b.endTime(),
                     b.servicesLabel(), b.vehicle(), b.plate(), b.total(), view.status().name(), view.startedAt(),
-                    view.finishedAt(), view.rating(), view.comment());
+                    view.finishedAt(), view.rating(), view.comment(), view.startableAt());
         }
     }
 
     public record RatingResponse(long bookingId, String bookingCode, LocalDate date, String services, String vehicle,
-                                 String plate, short rating, String comment, Instant ratedAt, String operatorName) {
+                                 String plate, short rating, String comment, Instant ratedAt, String operatorName,
+                                 String clientName) {
 
         public static RatingResponse from(RatingView view) {
             return new RatingResponse(view.bookingId(), view.bookingCode(), view.date(), view.services(), view.vehicle(),
-                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName());
+                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName(), view.clientName());
         }
     }
 }
