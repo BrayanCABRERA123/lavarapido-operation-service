@@ -35,6 +35,11 @@ spring:
     database-change-log-lock-table: DATABASECHANGELOGLOCK_OPERATIONS
 
   # RabbitMQ (ADR-004): solo se usa con MESSAGING_ENABLED=true
+  # fotos del informe de inspeccion: hasta 2 MB cada una y 5 por hallazgo
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 11MB
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}

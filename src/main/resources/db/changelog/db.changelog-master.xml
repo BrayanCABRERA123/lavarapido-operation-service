@@ -15,6 +15,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <include file="db/changelog/007-create-execution-schema.sql"/>
+    <include file="db/changelog/033-execution-inspection-report.sql"/>
     <include file="db/changelog/seed/105-seed-execution-status.sql"/>
 
 </databaseChangeLog>

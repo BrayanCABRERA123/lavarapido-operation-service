@@ -1,6 +1,9 @@
 package com.lavarapido.operations.infrastructure.config;
 
 import com.lavarapido.operations.domain.exception.ConflictException;
+import com.lavarapido.operations.domain.exception.NotFoundException;
+import com.lavarapido.operations.domain.port.in.InspectionUseCase;
+import com.lavarapido.operations.domain.port.in.InspectionUseCase.InspectionView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,9 @@ class OperationsApiWebTest {
     @MockitoBean
     private OperationsUseCase operations;
 
+    @MockitoBean
+    private InspectionUseCase inspections;
+
     private static String token(long userId, String role) {
         NimbusJwtEncoder encoder = new NimbusJwtEncoder(new ImmutableSecret<>(
                 new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256")));
@@ -90,6 +96,23 @@ class OperationsApiWebTest {
         mvc.perform(get("/api/v1/ratings/me").header("Authorization", token(7L, "CLIENT"))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/ratings/me").header("Authorization", token(30L, "OPERATOR")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void inspectionIsForTheAdminAndTheLinkIsPublic() throws Exception {
+        given(inspections.forBooking(anyLong())).willReturn(new InspectionView(true, true, null));
+        given(inspections.published("no-existe")).willThrow(new NotFoundException("INSPECTION_NOT_FOUND", "none"));
+
+        mvc.perform(get("/api/v1/admin/inspections/50")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/inspections/50").header("Authorization", token(7L, "CLIENT")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/inspections/50").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.editable").value(true));
+        // el enlace del cliente no pide sesion; un token que no existe es 404, no 401
+        mvc.perform(get("/api/v1/public/inspections/no-existe"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
     }
 
     @Test
