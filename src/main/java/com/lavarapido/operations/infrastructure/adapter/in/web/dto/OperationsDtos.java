@@ -3,6 +3,7 @@ package com.lavarapido.operations.infrastructure.adapter.in.web.dto;
 import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
+import com.lavarapido.operations.domain.model.TeamSummary;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.AssignmentView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.CandidateView;
@@ -75,6 +76,19 @@ public final class OperationsDtos {
             return new OperatorMetricsResponse(m.weekStart(), m.weekEnd(), m.completedServices(),
                     m.previousWeekServices(), m.servicesTrendPercent(), m.punctualityPercent(), m.punctualityLevel(),
                     m.revenue(), m.workedHours(), m.availableHours(), m.occupancyPercent());
+        }
+    }
+
+    /** Resumen del equipo (TeamSummaryCalculator); los null son "sin datos". */
+    public record TeamSummaryResponse(LocalDate weekStart, LocalDate weekEnd, int totalOperators, int activeOperators,
+                                      int availableToday, int absentToday, int completedServices,
+                                      int previousWeekServices, Integer servicesTrendPercent, Double averageRating,
+                                      int ratingsCount) {
+
+        public static TeamSummaryResponse from(TeamSummary s) {
+            return new TeamSummaryResponse(s.weekStart(), s.weekEnd(), s.totalOperators(), s.activeOperators(),
+                    s.availableToday(), s.absentToday(), s.completedServices(), s.previousWeekServices(),
+                    s.servicesTrendPercent(), s.averageRating(), s.ratingsCount());
         }
     }
 

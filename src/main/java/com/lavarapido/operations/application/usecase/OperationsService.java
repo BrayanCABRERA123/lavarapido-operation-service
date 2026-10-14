@@ -10,6 +10,7 @@ import com.lavarapido.operations.domain.model.ExecutionStatus;
 import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
 import com.lavarapido.operations.domain.model.Operator;
 import com.lavarapido.operations.domain.model.ServiceExecution;
+import com.lavarapido.operations.domain.model.TeamSummary;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.port.out.BookingDirectory;
@@ -21,6 +22,7 @@ import com.lavarapido.operations.domain.port.out.UserDirectory.UserSnapshot;
 import com.lavarapido.operations.domain.service.AssignmentPolicy;
 import com.lavarapido.operations.domain.service.OperatorMetricsCalculator;
 import com.lavarapido.operations.domain.service.StartPolicy;
+import com.lavarapido.operations.domain.service.TeamSummaryCalculator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -84,6 +86,26 @@ public class OperationsService implements OperationsUseCase {
         List<BookingSnapshot> bookingsOfTwoWeeks = bookings.forAdmin(weekStart.minusDays(7), weekStart.plusDays(6));
         return OperatorMetricsCalculator.compute(weekStart, bookingsOfTwoWeeks, executions.findByOperator(operator.id()),
                 operators.availability(operator.id()));
+    }
+
+    @Override
+    public TeamSummary teamSummary(LocalDate weekOf) {
+        LocalDate today = today();
+        LocalDate weekStart = (weekOf == null ? today : weekOf).with(DayOfWeek.MONDAY);
+        List<BookingSnapshot> bookingsOfTwoWeeks = bookings.forAdmin(weekStart.minusDays(7), weekStart.plusDays(6));
+        Instant dayStart = toInstant(today.atStartOfDay());
+        Instant dayEnd = toInstant(today.plusDays(1).atStartOfDay());
+        List<TeamSummaryCalculator.Member> members = new ArrayList<>();
+        for (OperatorView view : operators()) {
+            int id = view.operatorId();
+            boolean onShift = view.week().stream().anyMatch(shift -> shift.dayOfWeek() == today.getDayOfWeek().getValue());
+            boolean absent = !operators.absences(id, dayStart, dayEnd).isEmpty();
+            OperatorWeekMetrics week = OperatorMetricsCalculator.compute(weekStart, bookingsOfTwoWeeks,
+                    executions.findByOperator(id), view.week());
+            members.add(new TeamSummaryCalculator.Member(view.active(), onShift, absent, week,
+                    view.averageRating(), view.ratingsCount()));
+        }
+        return TeamSummaryCalculator.compute(weekStart, members);
     }
 
     @Override

@@ -11,6 +11,7 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorMetricsResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorServiceResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.TeamSummaryResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ShiftRequest;
@@ -54,6 +55,12 @@ final class OperationsControllers {
         @GetMapping("/operators")
         List<OperatorResponse> operators() {
             return operations.operators().stream().map(OperatorResponse::from).toList();
+        }
+
+        /** Resumen del equipo para la lista de operarios (week = cualquier día de esa semana). */
+        @GetMapping("/operators/summary")
+        TeamSummaryResponse teamSummary(@RequestParam(required = false) LocalDate week) {
+            return TeamSummaryResponse.from(operations.teamSummary(week));
         }
 
         /** Servicios, puntualidad, ingresos y horas de la semana (week = cualquier día de esa semana). */

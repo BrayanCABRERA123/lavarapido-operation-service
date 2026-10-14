@@ -4,6 +4,7 @@ import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.ExecutionStatus;
 import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
+import com.lavarapido.operations.domain.model.TeamSummary;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 
 import java.time.Instant;
@@ -61,6 +62,9 @@ public interface OperationsUseCase {
 
     /** Métricas de la semana que contiene weekOf (por defecto la actual): servicios, puntualidad, ingresos y horas. */
     OperatorWeekMetrics metrics(int operatorId, LocalDate weekOf);
+
+    /** Resumen del equipo: activos, disponibles hoy, servicios de la semana con su tendencia y calificación. */
+    TeamSummary teamSummary(LocalDate weekOf);
 
     OperatorView setActive(int operatorId, boolean active, long adminId);
 
