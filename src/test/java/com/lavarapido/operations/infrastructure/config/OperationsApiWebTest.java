@@ -1,5 +1,6 @@
 package com.lavarapido.operations.infrastructure.config;
 
+import com.lavarapido.operations.domain.port.in.OperatorProfileUseCase;
 import com.lavarapido.operations.domain.exception.ConflictException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.port.in.InspectionUseCase;
@@ -56,6 +57,9 @@ class OperationsApiWebTest {
 
     @MockitoBean
     private InspectionUseCase inspections;
+
+    @MockitoBean
+    private OperatorProfileUseCase operatorProfiles;
 
     private static String token(long userId, String role) {
         NimbusJwtEncoder encoder = new NimbusJwtEncoder(new ImmutableSecret<>(
