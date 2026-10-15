@@ -53,6 +53,10 @@ public interface OperationsUseCase {
 
     /** Calificacion de una reserva (todas sus lineas tienen la misma). */
     /** operatorName lo ve el cliente; clientName lo ve el operario (solo el primer nombre de cada uno). */
+    /** El cliente solo ve el primer nombre de quien atiende su reserva. */
+    record BookingOperatorView(long bookingId, String operatorName) {
+    }
+
     record RatingView(long bookingId, String bookingCode, LocalDate date, String services, String vehicle,
                       String plate, short rating, String comment, Instant ratedAt, String operatorName,
                       String clientName) {
@@ -121,4 +125,7 @@ public interface OperationsUseCase {
 
     /** Calificaciones que el cliente ya dio a sus reservas. */
     List<RatingView> myGivenRatings(long customerUserId);
+
+    /** Operario asignado a cada reserva del cliente que llama (solo las que ya tienen uno). */
+    List<BookingOperatorView> myBookingOperators();
 }
