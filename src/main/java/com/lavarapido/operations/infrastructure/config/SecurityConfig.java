@@ -24,7 +24,8 @@ import java.util.List;
  *
  * Nada es publico salvo la salud del servicio. /api/v1/admin/** es del ADMIN (operarios,
  * disponibilidad, asignacion); /api/v1/operator/** del OPERATOR (sus servicios); las
- * calificaciones (/api/v1/ratings/**) las da el CLIENT.
+ * calificaciones (/api/v1/ratings/**) las da el CLIENT, que tambien ve el operario de sus reservas
+ * (/api/v1/operators/my-bookings).
  */
 @Configuration
 @EnableWebSecurity
@@ -58,6 +59,7 @@ class SecurityConfig {
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/operator/**").hasRole("OPERATOR")
                         .requestMatchers("/api/v1/ratings/**").hasRole("CLIENT")
+                        .requestMatchers("/api/v1/operators/my-bookings").hasRole("CLIENT")
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2

@@ -6,6 +6,7 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ActiveRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignmentResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.BookingOperatorResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.CandidateResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AvailabilityRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorMetricsResponse;
@@ -157,6 +158,23 @@ final class OperationsControllers {
         @GetMapping("/ratings")
         List<RatingResponse> ratings(@AuthenticationPrincipal Jwt jwt) {
             return operations.myRatings(AuthenticatedUser.userId(jwt)).stream().map(RatingResponse::from).toList();
+        }
+    }
+
+    /** Operario que atiende cada reserva del cliente (inicio e historial). Solo CLIENT. */
+    @RestController
+    @RequestMapping("/api/v1/operators")
+    static class ClientBookingOperatorController {
+
+        private final OperationsUseCase operations;
+
+        ClientBookingOperatorController(OperationsUseCase operations) {
+            this.operations = operations;
+        }
+
+        @GetMapping("/my-bookings")
+        List<BookingOperatorResponse> myBookings() {
+            return operations.myBookingOperators().stream().map(BookingOperatorResponse::from).toList();
         }
     }
 

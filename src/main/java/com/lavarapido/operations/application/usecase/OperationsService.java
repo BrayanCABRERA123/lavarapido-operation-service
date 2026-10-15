@@ -481,6 +481,23 @@ public class OperationsService implements OperationsUseCase {
         return result;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<BookingOperatorView> myBookingOperators() {
+        // mine() consulta el booking-service con el token del cliente: solo trae sus reservas
+        List<BookingSnapshot> mine = bookings.mine();
+        Map<Long, ServiceExecution> byLine = executions.findByLineIds(mine.stream().flatMap(b -> b.lineIds().stream()).toList())
+                .stream().collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity(), (a, b) -> a));
+        Map<Integer, String> operatorNames = new HashMap<>();
+        List<BookingOperatorView> result = new ArrayList<>();
+        for (BookingSnapshot booking : mine) {
+            booking.lineIds().stream().map(byLine::get).filter(e -> e != null).findFirst()
+                    .ifPresent(e -> result.add(new BookingOperatorView(booking.id(),
+                            operatorFirstName(e.operatorId(), operatorNames))));
+        }
+        return result;
+    }
+
     // ================================================================== apoyo
 
     private static boolean assignableOrRunning(BookingSnapshot booking) {

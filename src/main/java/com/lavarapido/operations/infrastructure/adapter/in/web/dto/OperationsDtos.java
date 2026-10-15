@@ -1,5 +1,6 @@
 package com.lavarapido.operations.infrastructure.adapter.in.web.dto;
 
+import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
@@ -148,6 +149,14 @@ public final class OperationsDtos {
             return new OperatorServiceResponse(b.id(), b.code(), b.status(), b.date(), b.startTime(), b.endTime(),
                     b.servicesLabel(), b.vehicle(), b.plate(), b.total(), view.status().name(), view.startedAt(),
                     view.finishedAt(), view.rating(), view.comment(), view.startableAt());
+        }
+    }
+
+    /** Operario de una reserva del cliente (solo su primer nombre). */
+    public record BookingOperatorResponse(long bookingId, String operatorName) {
+
+        public static BookingOperatorResponse from(OperationsUseCase.BookingOperatorView view) {
+            return new BookingOperatorResponse(view.bookingId(), view.operatorName());
         }
     }
 

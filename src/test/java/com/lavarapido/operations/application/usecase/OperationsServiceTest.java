@@ -1,5 +1,6 @@
 package com.lavarapido.operations.application.usecase;
 
+import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.event.ExecutionEvent;
 import com.lavarapido.operations.domain.exception.ConflictException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
@@ -194,6 +195,24 @@ class OperationsServiceTest {
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(CLIENT));
         assertEquals(2, saved.getValue().stream().filter(e -> e.rating() != null).count());
+    }
+
+    @Test
+    @DisplayName("el cliente ve el primer nombre del operario de sus reservas; las que no tienen operario no salen")
+    void clientSeesTheOperatorOfHisBookings() {
+        BookingSnapshot unassigned = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 10, 6),
+                LocalTime.of(9, 0), LocalTime.of(10, 0), Instant.parse("2026-10-06T14:00:00Z"),
+                Instant.parse("2026-10-06T15:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(510L, "Premium")), new BookingSnapshot.Bay((short) 1, "BAY-01", "Bahía 1"));
+        given(bookings.mine()).willReturn(List.of(booking("CONFIRMED"), unassigned));
+        given(users.firstNameOf(OPERATOR_USER)).willReturn("Oscar");
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        List<OperationsUseCase.BookingOperatorView> views = service.myBookingOperators();
+
+        assertEquals(List.of(new OperationsUseCase.BookingOperatorView(50L, "Oscar")), views);
     }
 
     @Test
