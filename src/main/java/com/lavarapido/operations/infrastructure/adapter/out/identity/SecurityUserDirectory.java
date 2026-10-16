@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
@@ -63,6 +64,26 @@ class SecurityUserDirectory implements UserDirectory {
     }
 
     record ContactJson(String firstName, boolean active) {
+    }
+
+    @Override
+    public boolean accountMissing(long userId) {
+        if (internalKey.isEmpty()) {
+            return false;
+        }
+        try {
+            internal.get()
+                    .uri("/internal/v1/users/{id}/contact", userId)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .toBodilessEntity();
+            return false;
+        } catch (HttpClientErrorException.NotFound e) {
+            return true;
+        } catch (RestClientException e) {
+            log.warn("Could not check the account of user {} in security-service: {}", userId, e.getMessage());
+            return false;
+        }
     }
 
     @Override

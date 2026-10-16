@@ -244,15 +244,40 @@ class OperationsServiceTest {
     @DisplayName("una cuenta OPERATOR sin fila de operario se crea al listar")
     void provisionsOperators() {
         given(operators.findAll()).willReturn(List.of());
-        given(operators.save(any(Operator.class), anyLong())).willAnswer(invocation -> {
-            Operator created = invocation.getArgument(0);
-            created.assignId(4);
-            return created;
-        });
+        given(operators.provision(eq(OPERATOR_USER), any(LocalDate.class), anyLong()))
+                .willReturn(Operator.restore(4, OPERATOR_USER, LocalDate.of(2026, 10, 5), true));
         given(operators.availability(4)).willReturn(List.of());
         given(executions.findByOperator(4)).willReturn(List.of());
 
         assertEquals(4, service.operators().getFirst().operatorId());
+    }
+
+    @Test
+    @DisplayName("el primer ingreso de un operario nuevo crea su fila y le muestra sus servicios")
+    void firstVisitOfANewOperatorProvisionsIt() {
+        long newcomer = 31L;
+        given(operators.findByUserId(newcomer)).willReturn(Optional.empty());
+        given(users.accountMissing(newcomer)).willReturn(false);
+        given(operators.provision(eq(newcomer), any(LocalDate.class), eq(newcomer)))
+                .willReturn(Operator.restore(5, newcomer, LocalDate.of(2026, 10, 5), true));
+        given(executions.findByOperator(5)).willReturn(List.of());
+        given(bookings.forOperator(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of());
+
+        assertTrue(service.myServices(null, null, newcomer).isEmpty());
+        verify(operators).provision(eq(newcomer), any(LocalDate.class), eq(newcomer));
+    }
+
+    @Test
+    @DisplayName("un token de una cuenta que no existe en security no crea filas de operario")
+    void missingAccountIsNotProvisioned() {
+        long ghost = 99L;
+        given(operators.findByUserId(ghost)).willReturn(Optional.empty());
+        given(users.accountMissing(ghost)).willReturn(true);
+
+        NotFoundException error = assertThrows(NotFoundException.class, () -> service.myServices(null, null, ghost));
+
+        assertEquals("OPERATOR_NOT_FOUND", error.code());
+        verify(operators, never()).provision(anyLong(), any(), anyLong());
     }
 
     // ------------------------------------------------------------------ RF-008 / RF-010
