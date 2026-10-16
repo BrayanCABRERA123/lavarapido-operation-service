@@ -64,7 +64,7 @@ security:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,http://localhost:8081}
   messaging:
     # false: los eventos de ejecucion solo van al log
     enabled: ${MESSAGING_ENABLED:false}
