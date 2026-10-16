@@ -158,6 +158,20 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("el operario ve el primer nombre del cliente en sus servicios, no la placa")
+    void servicesShowTheClientsFirstName() {
+        given(executions.findByOperator(3)).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        given(bookings.forOperator(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(users.firstNameOf(CLIENT)).willReturn("Carla");
+
+        List<OperationsUseCase.OperatorServiceView> mine = service.myServices(null, null, OPERATOR_USER);
+
+        assertEquals("Carla", mine.getFirst().clientName());
+        assertEquals("ABC-123", mine.getFirst().booking().plate());
+    }
+
+    @Test
     @DisplayName("un operario no puede empezar un servicio que no es suyo (404)")
     void notMyService() {
         given(bookings.forOperator(50L)).willReturn(Optional.of(booking("CONFIRMED")));

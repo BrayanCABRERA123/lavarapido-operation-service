@@ -379,10 +379,11 @@ public class OperationsService implements OperationsUseCase {
         Map<Long, ServiceExecution> mine = executions.findByOperator(operator.id()).stream()
                 .collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity()));
         List<OperatorServiceView> result = new ArrayList<>();
+        Map<Long, String> clientNames = new HashMap<>();
         for (BookingSnapshot booking : bookings.forOperator(first, last)) {
             List<ServiceExecution> lines = booking.lineIds().stream().map(mine::get).filter(e -> e != null).toList();
             if (!lines.isEmpty()) {
-                result.add(serviceView(booking, lines));
+                result.add(serviceView(booking, lines, clientNameOf(booking, clientNames)));
             }
         }
         result.sort(Comparator.comparing((OperatorServiceView v) -> v.booking().scheduledStart()));
@@ -408,7 +409,7 @@ public class OperationsService implements OperationsUseCase {
         executions.saveAll(lines, operatorUserId);
         events.publish(new ExecutionEvent(ExecutionEvent.Type.SERVICE_STARTED, booking.id(), booking.code(),
                 booking.ownerUserId(), operatorUserId, booking.scheduledStart(), now));
-        return serviceView(booking, lines);
+        return serviceView(booking, lines, clientNameOf(booking, new HashMap<>()));
     }
 
     @Override
@@ -422,7 +423,7 @@ public class OperationsService implements OperationsUseCase {
         executions.saveAll(lines, operatorUserId);
         events.publish(new ExecutionEvent(ExecutionEvent.Type.SERVICE_COMPLETED, booking.id(), booking.code(),
                 booking.ownerUserId(), operatorUserId, booking.scheduledStart(), now));
-        return serviceView(booking, lines);
+        return serviceView(booking, lines, clientNameOf(booking, new HashMap<>()));
     }
 
     @Override
@@ -549,10 +550,11 @@ public class OperationsService implements OperationsUseCase {
         return ExecutionStatus.PENDING;
     }
 
-    private static OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines) {
+    private static OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines,
+                                                   String clientName) {
         ServiceExecution first = lines.getFirst();
         return new OperatorServiceView(booking, statusOf(lines), first.startedAt(), first.finishedAt(), first.rating(),
-                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking));
+                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking), clientName);
     }
 
     private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName,
