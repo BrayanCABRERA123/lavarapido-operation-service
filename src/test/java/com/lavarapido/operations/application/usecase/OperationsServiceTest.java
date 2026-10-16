@@ -257,6 +257,7 @@ class OperationsServiceTest {
     void firstVisitOfANewOperatorProvisionsIt() {
         long newcomer = 31L;
         given(operators.findByUserId(newcomer)).willReturn(Optional.empty());
+        given(users.accountMissing(newcomer)).willReturn(false);
         given(operators.provision(eq(newcomer), any(LocalDate.class), eq(newcomer)))
                 .willReturn(Operator.restore(5, newcomer, LocalDate.of(2026, 10, 5), true));
         given(executions.findByOperator(5)).willReturn(List.of());
@@ -264,6 +265,19 @@ class OperationsServiceTest {
 
         assertTrue(service.myServices(null, null, newcomer).isEmpty());
         verify(operators).provision(eq(newcomer), any(LocalDate.class), eq(newcomer));
+    }
+
+    @Test
+    @DisplayName("un token de una cuenta que no existe en security no crea filas de operario")
+    void missingAccountIsNotProvisioned() {
+        long ghost = 99L;
+        given(operators.findByUserId(ghost)).willReturn(Optional.empty());
+        given(users.accountMissing(ghost)).willReturn(true);
+
+        NotFoundException error = assertThrows(NotFoundException.class, () -> service.myServices(null, null, ghost));
+
+        assertEquals("OPERATOR_NOT_FOUND", error.code());
+        verify(operators, never()).provision(anyLong(), any(), anyLong());
     }
 
     // ------------------------------------------------------------------ RF-008 / RF-010

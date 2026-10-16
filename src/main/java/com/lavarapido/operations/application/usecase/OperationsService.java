@@ -509,9 +509,16 @@ public class OperationsService implements OperationsUseCase {
                 .orElseThrow(() -> new NotFoundException("OPERATOR_NOT_FOUND", "Operator not found"));
     }
 
-    /** El operario que llama; si su cuenta aun no tiene fila, se crea (como el perfil del cliente). */
+    /**
+     * El operario que llama; si su cuenta aun no tiene fila, se crea (como el perfil del cliente).
+     * Antes se confirma con security-service que la cuenta existe: un token de prueba o de una cuenta
+     * borrada no deja filas de operario huerfanas.
+     */
     private Operator operatorOf(long userId) {
         Optional<Operator> found = operators.findByUserId(userId);
+        if (found.isEmpty() && users.accountMissing(userId)) {
+            throw new NotFoundException("OPERATOR_NOT_FOUND", "There is no operator account for this user");
+        }
         Operator operator = found.orElseGet(() -> operators.provision(userId, today(), userId));
         if (!operator.active()) {
             throw new ConflictException("OPERATOR_INACTIVE", "The operator is not active");

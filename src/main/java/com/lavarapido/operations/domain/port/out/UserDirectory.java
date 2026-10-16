@@ -28,4 +28,10 @@ public interface UserDirectory {
      * Vacío si no se pudo leer.
      */
     Optional<ContactSnapshot> contactOf(long userId);
+
+    /**
+     * true solo cuando security-service confirma que la cuenta no existe (404). Sin llave interna o
+     * sin respuesta devuelve false, para no dejar por fuera a un operario real por una caida.
+     */
+    boolean accountMissing(long userId);
 }
