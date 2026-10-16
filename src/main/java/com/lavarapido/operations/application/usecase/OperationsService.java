@@ -122,7 +122,7 @@ public class OperationsService implements OperationsUseCase {
         for (UserSnapshot user : users.operators()) {
             // una cuenta con rol OPERATOR que aun no tiene fila de operario la recibe aqui
             Operator operator = byUser.containsKey(user.id()) ? byUser.get(user.id())
-                    : operators.save(Operator.provision(user.id(), today()), 0L);
+                    : operators.provision(user.id(), today(), SYSTEM_ACTOR);
             result.add(view(operator, user));
         }
         result.sort(Comparator.comparing(OperatorView::fullName, String.CASE_INSENSITIVE_ORDER));
@@ -512,7 +512,7 @@ public class OperationsService implements OperationsUseCase {
     /** El operario que llama; si su cuenta aun no tiene fila, se crea (como el perfil del cliente). */
     private Operator operatorOf(long userId) {
         Optional<Operator> found = operators.findByUserId(userId);
-        Operator operator = found.orElseGet(() -> operators.save(Operator.provision(userId, today()), userId));
+        Operator operator = found.orElseGet(() -> operators.provision(userId, today(), userId));
         if (!operator.active()) {
             throw new ConflictException("OPERATOR_INACTIVE", "The operator is not active");
         }
