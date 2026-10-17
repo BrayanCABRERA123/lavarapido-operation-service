@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/** Informe de inspeccion del vehiculo (RF-027): el admin lo llena y el cliente lo ve por enlace. */
+/** Informe de inspeccion del vehiculo (RF-036): el admin lo llena y el cliente lo ve por enlace. */
 final class InspectionControllers {
 
     private InspectionControllers() {
