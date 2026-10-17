@@ -8,7 +8,7 @@ import com.lavarapido.operations.domain.port.out.InspectionRepository.StoredPhot
 
 import java.util.List;
 
-/** Informe de inspeccion del vehiculo (RF-027): lo llena el admin y el cliente lo ve por un enlace publico. */
+/** Informe de inspeccion del vehiculo (RF-036): lo llena el admin y el cliente lo ve por un enlace publico. */
 public interface InspectionUseCase {
 
     /** Si la reserva admite informe, si se puede editar y el informe (null si aun no se inicio). */

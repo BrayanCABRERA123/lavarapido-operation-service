@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Informe de inspeccion (RF-027). La reserva se lee de booking-service con el token del admin para
+ * Informe de inspeccion (RF-036). La reserva se lee de booking-service con el token del admin para
  * saber si el informe se puede iniciar o editar; las reglas las aplica el agregado InspectionReport.
  */
 @Service

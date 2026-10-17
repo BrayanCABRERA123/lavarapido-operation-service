@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Informe de inspeccion del vehiculo en servicios largos (RF-027). Raiz del agregado: sus fases y
+ * Informe de inspeccion del vehiculo en servicios largos (RF-036). Raiz del agregado: sus fases y
  * hallazgos solo cambian a traves de el, y aqui viven las reglas que antes estaban en la web.
  *
  * - Solo existe para reservas de 3 horas o mas confirmadas, en curso o terminadas.
