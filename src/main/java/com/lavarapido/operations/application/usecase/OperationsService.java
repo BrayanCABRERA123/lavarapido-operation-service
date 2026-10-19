@@ -163,6 +163,10 @@ public class OperationsService implements OperationsUseCase {
         if (startsAt == null || endsAt == null) {
             throw new InvalidValueException("INVALID_RANGE", "Start and end are required");
         }
+        // una ausencia se registra de hoy en adelante: los días que ya pasaron no se reescriben
+        if (startsAt.toLocalDate().isBefore(today())) {
+            throw new InvalidValueException("ABSENCE_IN_PAST", "An absence cannot start before today");
+        }
         Absence absence = new Absence(null, toInstant(startsAt), toInstant(endsAt), reason);
         boolean overlaps = operators.absences(operatorId, absence.startsAt(), absence.endsAt()).stream()
                 .anyMatch(other -> other.overlaps(absence.startsAt(), absence.endsAt()));
