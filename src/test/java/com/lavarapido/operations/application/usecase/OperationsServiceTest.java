@@ -3,6 +3,7 @@ package com.lavarapido.operations.application.usecase;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.event.ExecutionEvent;
 import com.lavarapido.operations.domain.exception.ConflictException;
+import com.lavarapido.operations.domain.exception.InvalidValueException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.ExecutionStatus;
@@ -110,6 +111,16 @@ class OperationsServiceTest {
 
         assertEquals("BOOKING_IN_PAST", error.code());
         verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("no se registra una ausencia que empiece en un día que ya pasó")
+    void absenceCannotStartInThePast() {
+        InvalidValueException error = assertThrows(InvalidValueException.class, () -> service.addAbsence(3,
+                LocalDate.of(2026, 10, 4).atStartOfDay(), LocalDate.of(2026, 10, 6).atStartOfDay(), "Permiso", ADMIN));
+
+        assertEquals("ABSENCE_IN_PAST", error.code());
+        verify(operators, never()).addAbsence(anyInt(), any(), anyLong());
     }
 
     @Test
