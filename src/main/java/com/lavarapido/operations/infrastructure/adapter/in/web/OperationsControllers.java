@@ -16,6 +16,7 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ShiftRequest;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.UnassignedResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -122,6 +123,13 @@ final class OperationsControllers {
         List<AssignmentResponse> assignments(@RequestParam(required = false) LocalDate from,
                                              @RequestParam(required = false) LocalDate to) {
             return operations.assignments(from, to).stream().map(AssignmentResponse::from).toList();
+        }
+
+        /** Reservas sin operario que empiezan entre from y to (sin fechas: hoy). Una sola regla para todas las pantallas. */
+        @GetMapping("/assignments/unassigned")
+        UnassignedResponse unassigned(@RequestParam(required = false) LocalDate from,
+                                      @RequestParam(required = false) LocalDate to) {
+            return UnassignedResponse.from(operations.unassigned(from, to));
         }
     }
 

@@ -11,6 +11,7 @@ import com.lavarapido.operations.domain.port.in.OperationsUseCase.CandidateView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorServiceView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.RatingView;
+import com.lavarapido.operations.domain.port.in.OperationsUseCase.UnassignedView;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -125,6 +126,14 @@ public final class OperationsDtos {
         public static AssignmentResponse from(AssignmentView view) {
             return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(),
                     view.status().name(), BayResponse.from(view.bay()));
+        }
+    }
+
+    /** Reservas que todavía necesitan operario (la misma cuenta para el inicio y la pantalla de reservas). */
+    public record UnassignedResponse(int count, List<Long> bookingIds) {
+
+        public static UnassignedResponse from(UnassignedView view) {
+            return new UnassignedResponse(view.count(), view.bookingIds());
         }
     }
 

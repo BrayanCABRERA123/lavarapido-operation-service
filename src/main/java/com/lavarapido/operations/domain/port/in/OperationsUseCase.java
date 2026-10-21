@@ -65,6 +65,13 @@ public interface OperationsUseCase {
     }
 
     /** Operario libre para un horario, como lo ve el cliente al reservar (RF-010): solo el primer nombre. */
+    /** Reservas que todavía necesitan operario, en orden de hora de inicio. */
+    record UnassignedView(List<Long> bookingIds) {
+        public int count() {
+            return bookingIds.size();
+        }
+    }
+
     record AvailableOperatorView(int operatorId, String firstName, Double averageRating, int ratingsCount) {
     }
 
@@ -109,6 +116,12 @@ public interface OperationsUseCase {
 
     /** Asignaciones de las reservas que empiezan entre from y to. */
     List<AssignmentView> assignments(LocalDate from, LocalDate to);
+
+    /**
+     * La única regla de "sin asignar" que usan las pantallas: reservas que empiezan entre from y to,
+     * programadas o confirmadas, que todavía no terminaron y no tienen operario en ninguna línea.
+     */
+    UnassignedView unassigned(LocalDate from, LocalDate to);
 
     // ------------------------------------------------------------------ operario
 
