@@ -137,6 +137,10 @@ class OperationsServiceTest {
 
         assertEquals(3, view.operatorId());
         assertEquals("Oscar Operario", view.operatorName());
+        // el candado va antes de mirar las reservas del operario y de guardar
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).saveAll(any(), eq(ADMIN));
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(ADMIN));
         assertEquals(2, saved.getValue().size());
@@ -341,6 +345,10 @@ class OperationsServiceTest {
     void autoAssignLeastBusyAndKeepsAnExistingAssignment() {
         twoOperatorsOnShiftMonday();
         assertEquals(3, service.autoAssign(50L, CLIENT, null).orElseThrow().operatorId());
+        // la automática también toma el candado antes de guardar
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).saveAll(any(), anyLong());
 
         given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
                 ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));

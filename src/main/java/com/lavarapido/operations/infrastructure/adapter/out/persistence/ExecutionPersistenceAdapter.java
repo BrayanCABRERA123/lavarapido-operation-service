@@ -5,6 +5,8 @@ import com.lavarapido.operations.domain.model.ServiceExecution;
 import com.lavarapido.operations.domain.port.out.ExecutionRepository;
 import com.lavarapido.operations.infrastructure.adapter.out.persistence.entity.ServiceExecutionJpaEntity;
 import com.lavarapido.operations.infrastructure.adapter.out.persistence.repository.OperationsJpaRepositories.ExecutionJpaRepository;
+import com.lavarapido.operations.domain.exception.ConflictException;
+import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -14,10 +16,33 @@ import java.util.List;
 @Component
 class ExecutionPersistenceAdapter implements ExecutionRepository {
 
-    private final ExecutionJpaRepository executions;
+    /**
+     * sp_getapplock con dueño Transaction (igual que la agenda de booking-service): el candado se
+     * suelta solo al terminar la transaccion. Devuelve >= 0 si lo obtuvo; negativo si se vencio la
+     * espera (10 s).
+     */
+    private static final String LOCK_SQL = """
+            SET NOCOUNT ON;
+            DECLARE @result INT;
+            EXEC @result = sp_getapplock @Resource = 'operations-assignment', @LockMode = 'Exclusive',
+                                         @LockOwner = 'Transaction', @LockTimeout = 10000;
+            SELECT @result;
+            """;
 
-    ExecutionPersistenceAdapter(ExecutionJpaRepository executions) {
+    private final ExecutionJpaRepository executions;
+    private final EntityManager entityManager;
+
+    ExecutionPersistenceAdapter(ExecutionJpaRepository executions, EntityManager entityManager) {
         this.executions = executions;
+        this.entityManager = entityManager;
+    }
+
+    @Override
+    public void lockAssignments() {
+        Object result = entityManager.createNativeQuery(LOCK_SQL).getSingleResult();
+        if (result instanceof Number number && number.intValue() < 0) {
+            throw new ConflictException("ASSIGNMENT_BUSY", "Another assignment is in progress, try again");
+        }
     }
 
     @Override
