@@ -23,6 +23,11 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
      */
     private static final String LOCK_SQL = """
             SET NOCOUNT ON;
+            -- el driver de SQL Server abre la transaccion de Spring en la base con la primera lectura
+            -- de una tabla; sin ella sp_getapplock responde -999. Esta lectura (sin filas de salida)
+            -- la abre; un BEGIN TRANSACTION abriria dos niveles y el commit dejaria uno colgado.
+            DECLARE @open SMALLINT;
+            SELECT TOP (1) @open = execution_status_id FROM execution.execution_status;
             DECLARE @result INT;
             EXEC @result = sp_getapplock @Resource = 'operations-assignment', @LockMode = 'Exclusive',
                                          @LockOwner = 'Transaction', @LockTimeout = 10000;
