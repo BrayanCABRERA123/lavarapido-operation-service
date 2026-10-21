@@ -67,6 +67,24 @@ class BookingServiceDirectory implements BookingDirectory {
                 .body(BookingJson[].class));
     }
 
+    @Override
+    public void markUnattended(long bookingId) {
+        requireInternalKey();
+        try {
+            internal.post().uri("/internal/v1/bookings/{id}/no-show", bookingId)
+                    .header(INTERNAL_HEADER, internalKey)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                throw new ConflictException("BOOKING_STATE_CONFLICT", "The booking cannot be closed as not attended");
+            }
+            throw unavailable(e);
+        } catch (RestClientException e) {
+            throw unavailable(e);
+        }
+    }
+
     // sin llave no hay asignación automática ni lista de operarios libres: mejor fallar claro
     private void requireInternalKey() {
         if (internalKey.isEmpty()) {

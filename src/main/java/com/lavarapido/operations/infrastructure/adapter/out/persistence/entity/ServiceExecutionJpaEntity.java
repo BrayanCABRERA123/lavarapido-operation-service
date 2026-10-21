@@ -46,6 +46,9 @@ public class ServiceExecutionJpaEntity {
     @Column(name = "is_comment_visible")
     private Boolean commentVisible;
 
+    @Column(name = "follow_up_notice_at")
+    private Instant followUpNoticeAt;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -149,5 +152,13 @@ public class ServiceExecutionJpaEntity {
 
     public void setUpdatedBy(Long updatedBy) {
         this.updatedBy = updatedBy;
+    }
+
+    public Instant getFollowUpNoticeAt() {
+        return followUpNoticeAt;
+    }
+
+    public void setFollowUpNoticeAt(Instant followUpNoticeAt) {
+        this.followUpNoticeAt = followUpNoticeAt;
     }
 }

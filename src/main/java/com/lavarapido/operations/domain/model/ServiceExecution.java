@@ -25,10 +25,12 @@ public final class ServiceExecution {
     private String comment;
     private Instant ratedAt;
     private boolean commentVisible;
+    // cuándo se avisó que el servicio terminó sin registrarse (no iniciado o no finalizado)
+    private Instant followUpNoticeAt;
 
     private ServiceExecution(Long id, long bookingServiceId, int operatorId, ExecutionStatus status,
                              Instant startedAt, Instant finishedAt, Short rating, String comment,
-                             Instant ratedAt, boolean commentVisible) {
+                             Instant ratedAt, boolean commentVisible, Instant followUpNoticeAt) {
         this.id = id;
         this.bookingServiceId = bookingServiceId;
         this.operatorId = operatorId;
@@ -39,19 +41,27 @@ public final class ServiceExecution {
         this.comment = comment;
         this.ratedAt = ratedAt;
         this.commentVisible = commentVisible;
+        this.followUpNoticeAt = followUpNoticeAt;
     }
 
     /** Linea asignada a un operario: queda pendiente hasta que la empiece. */
     public static ServiceExecution assign(long bookingServiceId, int operatorId) {
         return new ServiceExecution(null, bookingServiceId, operatorId, ExecutionStatus.PENDING,
-                null, null, null, null, null, true);
+                null, null, null, null, null, true, null);
     }
 
     public static ServiceExecution restore(long id, long bookingServiceId, int operatorId, ExecutionStatus status,
                                            Instant startedAt, Instant finishedAt, Short rating, String comment,
                                            Instant ratedAt, boolean commentVisible) {
+        return restore(id, bookingServiceId, operatorId, status, startedAt, finishedAt, rating, comment, ratedAt,
+                commentVisible, null);
+    }
+
+    public static ServiceExecution restore(long id, long bookingServiceId, int operatorId, ExecutionStatus status,
+                                           Instant startedAt, Instant finishedAt, Short rating, String comment,
+                                           Instant ratedAt, boolean commentVisible, Instant followUpNoticeAt) {
         return new ServiceExecution(id, bookingServiceId, operatorId, status, startedAt, finishedAt, rating,
-                comment, ratedAt, commentVisible);
+                comment, ratedAt, commentVisible, followUpNoticeAt);
     }
 
     /** Cambiar de operario solo mientras no ha empezado. */
@@ -68,6 +78,8 @@ public final class ServiceExecution {
         }
         status = ExecutionStatus.IN_PROGRESS;
         startedAt = now;
+        // ya se registró: si luego no lo finaliza, ese es otro aviso
+        followUpNoticeAt = null;
     }
 
     public void finish(Instant now) {
@@ -76,6 +88,23 @@ public final class ServiceExecution {
         }
         status = ExecutionStatus.COMPLETED;
         finishedAt = now;
+    }
+
+    /**
+     * El admin confirma que se atendió aunque el operario no lo registró. Queda terminada sin
+     * inventar horas: si nunca se inició no hay hora de inicio (no cuenta para la puntualidad) y la de
+     * fin queda vacía (no suma horas trabajadas), pero sí cuenta como servicio hecho.
+     */
+    public void closeAsAttended() {
+        if (status == ExecutionStatus.COMPLETED) {
+            throw new ConflictException("EXECUTION_ALREADY_COMPLETED", "The service is already completed");
+        }
+        status = ExecutionStatus.COMPLETED;
+    }
+
+    /** Deja constancia de que ya se avisó que terminó sin registrarse, para no repetirlo. */
+    public void followUpNoticeSent(Instant now) {
+        followUpNoticeAt = now;
     }
 
     /** Calificacion del cliente (RF-012): 1 a 5, una sola vez, solo de un servicio terminado. */
@@ -143,5 +172,9 @@ public final class ServiceExecution {
 
     public boolean commentVisible() {
         return commentVisible;
+    }
+
+    public Instant followUpNoticeAt() {
+        return followUpNoticeAt;
     }
 }
