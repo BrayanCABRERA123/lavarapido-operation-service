@@ -196,6 +196,8 @@ public class OperationsService implements OperationsUseCase {
         }
         Operator operator = requireOperator(operatorId);
 
+        // con las asignaciones bloqueadas, las reservas del operario se leen ya con la automatica hecha
+        executions.lockAssignments();
         List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
         AssignmentPolicy.check(operator, operators.availability(operatorId),
                 operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking,
@@ -230,6 +232,8 @@ public class OperationsService implements OperationsUseCase {
         if (!ASSIGNABLE.contains(booking.status()) || !booking.scheduledEnd().isAfter(clock.instant())) {
             return Optional.empty();
         }
+        // con las asignaciones bloqueadas: una asignacion manual al mismo tiempo se ve antes de elegir
+        executions.lockAssignments();
         // una reprogramación conserva al operario que ya tenía; lo cambia el administrador si hace falta
         if (!executions.findByLineIds(booking.lineIds()).isEmpty()) {
             return Optional.empty();
