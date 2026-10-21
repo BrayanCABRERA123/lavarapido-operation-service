@@ -127,7 +127,8 @@ public class FollowUpService implements FollowUpUseCase {
                     closed++;
                 } catch (DomainException notClosed) {
                     // otro la cambió o booking aún no la ve vencida: se intenta en la siguiente vuelta
-                    log.debug("Booking {} was not closed as not attended: {}", booking.id(), notClosed.getMessage());
+                    log.warn("Booking {} was not closed as not attended: {} {}", booking.id(), notClosed.code(),
+                            notClosed.getMessage());
                 }
             } else if (lines.stream().allMatch(line -> line.followUpNoticeAt() == null)) {
                 notice(booking, lines, reason.get(), now);
