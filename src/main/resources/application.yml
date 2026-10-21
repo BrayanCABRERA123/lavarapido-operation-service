@@ -92,6 +92,12 @@ app:
     internal-key: ${INTERNAL_API_KEY:}
   # zona horaria del lavadero: turnos, ausencias y fechas se leen en esta hora
   zone: ${BOOKING_ZONE:America/Bogota}
+  # Reservas que terminaron y nadie cerró: sin operario quedan "no asistió" pasado el margen (el mismo
+  # de booking-service); con operario quedan "Por cerrar" para el admin y se avisa una vez
+  follow-up:
+    enabled: ${FOLLOW_UP_ENABLED:true}
+    interval: ${FOLLOW_UP_INTERVAL:PT5M}
+    grace-minutes: ${BOOKING_EXPIRY_GRACE_MINUTES:60}
 
 # Swagger apagado por defecto; application-dev.yml lo prende
 springdoc:

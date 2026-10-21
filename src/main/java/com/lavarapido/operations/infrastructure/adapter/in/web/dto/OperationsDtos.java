@@ -130,6 +130,14 @@ public final class OperationsDtos {
     }
 
     /** Reservas que todavía necesitan operario (la misma cuenta para el inicio y la pantalla de reservas). */
+    /** Reserva que terminó sin registrarse: NOT_STARTED (nadie le dio Iniciar) o NOT_FINISHED. */
+    public record ToCloseResponse(long bookingId, String reason, int operatorId) {
+
+        public static ToCloseResponse from(com.lavarapido.operations.domain.port.in.FollowUpUseCase.ToCloseView view) {
+            return new ToCloseResponse(view.bookingId(), view.reason().name(), view.operatorId());
+        }
+    }
+
     public record UnassignedResponse(int count, List<Long> bookingIds) {
 
         public static UnassignedResponse from(UnassignedView view) {

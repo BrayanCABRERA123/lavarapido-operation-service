@@ -13,7 +13,10 @@ public record ExecutionEvent(Type type, long bookingId, String bookingCode, Long
     public enum Type {
         OPERATOR_ASSIGNED("OperatorAssigned", "execution.operator_assigned"),
         SERVICE_STARTED("ServiceStarted", "execution.service_started"),
-        SERVICE_COMPLETED("ServiceCompleted", "execution.service_completed");
+        SERVICE_COMPLETED("ServiceCompleted", "execution.service_completed"),
+        // terminó la hora y nadie lo registró: se avisa al operario y a los administradores
+        SERVICE_NOT_STARTED("ServiceNotStarted", "execution.service_not_started"),
+        SERVICE_NOT_FINISHED("ServiceNotFinished", "execution.service_not_finished");
 
         private final String eventName;
         private final String routingKey;

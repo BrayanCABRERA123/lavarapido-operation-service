@@ -34,4 +34,10 @@ public interface BookingDirectory {
 
     /** El operario mueve la reserva: IN_PROGRESS al empezar, COMPLETED al terminar. */
     void advance(long bookingId, String status);
+
+    /**
+     * Por la llave interna: deja NO_SHOW una confirmada vencida que nunca tuvo operario. Booking
+     * vuelve a revisar que ya pasó la hora de fin más el margen (409 BOOKING_NOT_EXPIRED si no).
+     */
+    void markUnattended(long bookingId);
 }

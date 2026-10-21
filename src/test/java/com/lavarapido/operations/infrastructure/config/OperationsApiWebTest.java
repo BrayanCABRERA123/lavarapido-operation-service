@@ -5,6 +5,7 @@ import com.lavarapido.operations.domain.exception.ConflictException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.port.in.InspectionUseCase;
 import com.lavarapido.operations.domain.port.in.InspectionUseCase.InspectionView;
+import com.lavarapido.operations.domain.port.in.FollowUpUseCase;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,9 @@ class OperationsApiWebTest {
 
     @MockitoBean
     private OperationsUseCase operations;
+
+    @MockitoBean
+    private FollowUpUseCase followUp;
 
     @MockitoBean
     private InspectionUseCase inspections;
@@ -148,5 +152,23 @@ class OperationsApiWebTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"rating\":9}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void onlyTheAdminClosesABookingThatNobodyRegistered() throws Exception {
+        given(followUp.toClose(null, null)).willReturn(List.of(new FollowUpUseCase.ToCloseView(61L,
+                com.lavarapido.operations.domain.service.FollowUpPolicy.Reason.NOT_STARTED, 3)));
+
+        mvc.perform(get("/api/v1/admin/assignments/to-close").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/assignments/to-close").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].bookingId").value(61))
+                .andExpect(jsonPath("$[0].reason").value("NOT_STARTED"));
+        mvc.perform(post("/api/v1/admin/assignments/61/attended").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/admin/assignments/61/attended").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isNoContent());
+        org.mockito.Mockito.verify(followUp).closeAsAttended(61L, 1L);
     }
 }
