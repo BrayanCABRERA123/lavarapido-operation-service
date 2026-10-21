@@ -373,6 +373,24 @@ public class OperationsService implements OperationsUseCase {
         return result;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public UnassignedView unassigned(LocalDate from, LocalDate to) {
+        LocalDate first = from == null ? today() : from;
+        LocalDate last = to == null ? first : to;
+        Instant now = clock.instant();
+        List<BookingSnapshot> open = bookings.forAdmin(first, last).stream()
+                .filter(booking -> ASSIGNABLE.contains(booking.status()) && booking.scheduledEnd().isAfter(now))
+                .toList();
+        Set<Long> assignedLines = executionsOf(open).stream()
+                .map(ServiceExecution::bookingServiceId).collect(Collectors.toSet());
+        return new UnassignedView(open.stream()
+                .filter(booking -> booking.lineIds().stream().noneMatch(assignedLines::contains))
+                .sorted(Comparator.comparing(BookingSnapshot::scheduledStart))
+                .map(BookingSnapshot::id)
+                .toList());
+    }
+
     // ================================================================== operario
 
     @Override

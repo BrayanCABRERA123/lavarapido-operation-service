@@ -371,4 +371,32 @@ class OperationsServiceTest {
 
         assertEquals(4, service.autoAssign(50L, CLIENT, 3).orElseThrow().operatorId());
     }
+
+    @Test
+    @DisplayName("sin asignar: solo programadas o confirmadas que no han terminado y sin operario, por hora")
+    void unassignedFollowsOneRule() {
+        BookingSnapshot later = snapshot(53L, "CONFIRMED", "2026-10-05T19:00:00Z", 530L);
+        BookingSnapshot assigned = booking("CONFIRMED");
+        BookingSnapshot earlier = snapshot(54L, "SCHEDULED", "2026-10-05T16:00:00Z", 540L);
+        BookingSnapshot alreadyOver = snapshot(55L, "CONFIRMED", "2026-10-05T12:00:00Z", 550L);
+        BookingSnapshot running = snapshot(56L, "IN_PROGRESS", "2026-10-05T13:30:00Z", 560L);
+        BookingSnapshot cancelled = snapshot(57L, "CANCELLED", "2026-10-05T18:00:00Z", 570L);
+        given(bookings.forAdmin(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5)))
+                .willReturn(List.of(later, assigned, earlier, alreadyOver, running, cancelled));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        var unassigned = service.unassigned(null, null);
+
+        assertEquals(List.of(54L, 53L), unassigned.bookingIds());
+        assertEquals(2, unassigned.count());
+    }
+
+    private static BookingSnapshot snapshot(long id, String status, String startUtc, long lineId) {
+        Instant start = Instant.parse(startUtc);
+        java.time.ZonedDateTime local = start.atZone(java.time.ZoneId.of("America/Bogota"));
+        return new BookingSnapshot(id, "RES-0000" + id, status, local.toLocalDate(), local.toLocalTime(),
+                local.toLocalTime().plusHours(1), start, start.plusSeconds(3600), CLIENT, "Mazda 3", "ABC-123",
+                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(lineId, "Premium")), null);
+    }
 }
