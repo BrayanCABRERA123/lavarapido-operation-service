@@ -98,6 +98,9 @@ app:
     enabled: ${FOLLOW_UP_ENABLED:true}
     interval: ${FOLLOW_UP_INTERVAL:PT5M}
     grace-minutes: ${BOOKING_EXPIRY_GRACE_MINUTES:60}
+    # días hacia atrás que se revisan (el servidor puede pasar semanas apagado); no más de lo que
+    # cargan la web y el móvil, o "Por cerrar" no las mostraría
+    look-back-days: ${FOLLOW_UP_LOOK_BACK_DAYS:28}
 
 # Swagger apagado por defecto; application-dev.yml lo prende
 springdoc:
