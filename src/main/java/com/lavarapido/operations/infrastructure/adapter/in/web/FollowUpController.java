@@ -31,7 +31,7 @@ class FollowUpController {
         this.followUp = followUp;
     }
 
-    /** Por cerrar entre from y to (sin fechas: la última semana hasta hoy). */
+    /** Por cerrar entre from y to (sin fechas: los últimos app.follow-up.look-back-days días hasta hoy). */
     @GetMapping("/to-close")
     List<ToCloseResponse> toClose(@RequestParam(required = false) LocalDate from,
                                   @RequestParam(required = false) LocalDate to) {

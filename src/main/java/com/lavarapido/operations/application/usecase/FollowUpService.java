@@ -44,8 +44,6 @@ import java.util.stream.Collectors;
 public class FollowUpService implements FollowUpUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(FollowUpService.class);
-    // la tarea revisa la última semana: alcanza aunque el servicio haya estado apagado unos días
-    private static final int LOOK_BACK_DAYS = 7;
     private static final long SYSTEM_ACTOR = 0L;
 
     private final ExecutionRepository executions;
@@ -55,10 +53,14 @@ public class FollowUpService implements FollowUpUseCase {
     private final Clock clock;
     private final ZoneId zone;
     private final Duration grace;
+    // cuántos días atrás se revisan: el servidor se enciende a demanda y puede pasar semanas apagado.
+    // No más de lo que cargan la web (30) y el móvil (29), o la tarjeta "Por cerrar" no las mostraría
+    private final int lookBackDays;
 
     public FollowUpService(ExecutionRepository executions, BookingDirectory bookings, OperatorRepository operators,
                            DomainEventPublisher events, Clock clock, ZoneId zone,
-                           @Value("${app.follow-up.grace-minutes:60}") long graceMinutes) {
+                           @Value("${app.follow-up.grace-minutes:60}") long graceMinutes,
+                           @Value("${app.follow-up.look-back-days:28}") int lookBackDays) {
         this.executions = executions;
         this.bookings = bookings;
         this.operators = operators;
@@ -66,13 +68,14 @@ public class FollowUpService implements FollowUpUseCase {
         this.clock = clock;
         this.zone = zone;
         this.grace = Duration.ofMinutes(graceMinutes);
+        this.lookBackDays = lookBackDays;
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ToCloseView> toClose(LocalDate from, LocalDate to) {
         LocalDate today = LocalDate.now(clock.withZone(zone));
-        LocalDate first = from == null ? today.minusDays(LOOK_BACK_DAYS) : from;
+        LocalDate first = from == null ? today.minusDays(lookBackDays) : from;
         LocalDate last = to == null ? today : to;
         Instant now = clock.instant();
         List<BookingSnapshot> list = bookings.forAdmin(first, last);
@@ -111,7 +114,7 @@ public class FollowUpService implements FollowUpUseCase {
     public FollowUpRun followUp() {
         LocalDate today = LocalDate.now(clock.withZone(zone));
         Instant now = clock.instant();
-        List<BookingSnapshot> recent = bookings.forService(today.minusDays(LOOK_BACK_DAYS), today);
+        List<BookingSnapshot> recent = bookings.forService(today.minusDays(lookBackDays), today);
         Map<Long, ServiceExecution> byLine = byLine(recent);
         int closed = 0;
         int notices = 0;

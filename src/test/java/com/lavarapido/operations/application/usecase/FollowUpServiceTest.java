@@ -59,7 +59,7 @@ class FollowUpServiceTest {
     @BeforeEach
     void setUp() {
         service = new FollowUpService(executions, bookings, operators, events, Clock.fixed(NOW, ZoneOffset.UTC),
-                ZoneId.of("America/Bogota"), 60);
+                ZoneId.of("America/Bogota"), 60, 28);
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
         given(operators.findById(3)).willReturn(Optional.of(Operator.restore(3, OPERATOR_USER, LocalDate.of(2026, 1, 1), true)));
     }
@@ -107,6 +107,20 @@ class FollowUpServiceTest {
 
         assertEquals(new FollowUpRun(0, 0), service.followUp());
         verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("revisa las últimas cuatro semanas: el servidor puede pasar días apagado")
+    void looksBackFourWeeks() {
+        given(bookings.forService(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of());
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of());
+
+        service.followUp();
+        service.toClose(null, null);
+
+        // hoy en Bogotá es 2026-10-05: 28 días atrás es 2026-09-07
+        verify(bookings).forService(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 10, 5));
+        verify(bookings).forAdmin(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 10, 5));
     }
 
     @Test
