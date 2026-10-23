@@ -1,6 +1,7 @@
 package com.lavarapido.operations.infrastructure.adapter.out.messaging;
 
 import com.lavarapido.operations.domain.event.ExecutionEvent;
+import com.lavarapido.operations.domain.event.InspectionSharedEvent;
 import com.lavarapido.operations.domain.port.out.DomainEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,5 +19,11 @@ class LoggingDomainEventPublisher implements DomainEventPublisher {
     public void publish(ExecutionEvent event) {
         log.info("Domain event {} for booking {} (messaging disabled, not published)",
                 event.type().eventName(), event.bookingId());
+    }
+
+    @Override
+    public void publishInspectionShared(InspectionSharedEvent event) {
+        log.info("Domain event {} for booking {} (messaging disabled, not published)",
+                InspectionSharedEvent.EVENT_NAME, event.bookingId());
     }
 }

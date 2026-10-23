@@ -10,10 +10,15 @@ import com.lavarapido.operations.infrastructure.adapter.out.persistence.entity.O
 import com.lavarapido.operations.infrastructure.adapter.out.persistence.repository.OperationsJpaRepositories.AbsenceJpaRepository;
 import com.lavarapido.operations.infrastructure.adapter.out.persistence.repository.OperationsJpaRepositories.AvailabilityJpaRepository;
 import com.lavarapido.operations.infrastructure.adapter.out.persistence.repository.OperationsJpaRepositories.OperatorJpaRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +33,17 @@ class OperatorPersistenceAdapter implements OperatorRepository {
     private final AvailabilityJpaRepository availability;
     private final AbsenceJpaRepository absences;
     private final Clock clock;
+    // el alta del operario va en su propia transaccion: si choca con otra igual, la de la peticion sigue sana
+    private final TransactionTemplate ownTransaction;
 
     OperatorPersistenceAdapter(OperatorJpaRepository operators, AvailabilityJpaRepository availability,
-                               AbsenceJpaRepository absences, Clock clock) {
+                               AbsenceJpaRepository absences, Clock clock, PlatformTransactionManager transactions) {
         this.operators = operators;
         this.availability = availability;
         this.absences = absences;
         this.clock = clock;
+        this.ownTransaction = new TransactionTemplate(transactions);
+        this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -69,6 +78,20 @@ class OperatorPersistenceAdapter implements OperatorRepository {
             operator.assignId(saved.getId());
         }
         return operator;
+    }
+
+    @Override
+    public Operator provision(long userId, LocalDate hiredOn, long actor) {
+        try {
+            Operator created = ownTransaction.execute(status -> save(Operator.provision(userId, hiredOn), actor));
+            if (created != null) {
+                return created;
+            }
+        } catch (DataIntegrityViolationException e) {
+            // otra peticion del mismo operario la creo primero (uq_operator_user): se usa esa
+        }
+        return findByUserId(userId).orElseThrow(
+                () -> new IllegalStateException("Operator row of user " + userId + " was not created"));
     }
 
     @Override

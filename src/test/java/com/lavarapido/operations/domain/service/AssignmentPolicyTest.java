@@ -32,7 +32,7 @@ class AssignmentPolicyTest {
         Instant to = Instant.parse(end);
         return new BookingSnapshot(id, "RES-" + id, "CONFIRMED", LocalDate.of(2026, 10, 5),
                 LocalTime.of(9, 0), LocalTime.of(10, 0), from, to, 7L, "Mazda 3", "ABC-123",
-                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(100 + id, "Premium")));
+                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(100 + id, "Premium")), null);
     }
 
     @Test
@@ -69,5 +69,14 @@ class AssignmentPolicyTest {
         Operator inactive = Operator.restore(3, 30L, LocalDate.of(2026, 1, 1), false);
         assertEquals("OPERATOR_INACTIVE", assertThrows(ConflictException.class,
                 () -> AssignmentPolicy.check(inactive, MONDAY_MORNING, List.of(), BOOKING, List.of())).code());
+    }
+
+    @Test
+    @DisplayName("blockingReason da el mismo motivo que check, sin lanzar (para mostrar quien esta disponible)")
+    void blockingReason() {
+        assertEquals(null, AssignmentPolicy.blockingReason(OPERATOR, MONDAY_MORNING, List.of(), BOOKING, List.of()));
+        assertEquals("OPERATOR_NOT_ON_SHIFT", AssignmentPolicy.blockingReason(OPERATOR, List.of(), List.of(), BOOKING, List.of()));
+        Operator inactive = Operator.restore(4, 40L, LocalDate.of(2026, 1, 1), false);
+        assertEquals("OPERATOR_INACTIVE", AssignmentPolicy.blockingReason(inactive, MONDAY_MORNING, List.of(), BOOKING, List.of()));
     }
 }

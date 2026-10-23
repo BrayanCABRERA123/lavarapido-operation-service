@@ -1,4 +1,9 @@
 spring:
+  # respuestas de error sin mensajes internos ni trazas (en Spring Boot 4 reemplaza a server.error.*)
+  web:
+    error:
+      include-message: never
+      include-stacktrace: never
   application:
     name: operations-service
   # En local arranca con dev, salvo que se diga otra cosa con SPRING_PROFILES_ACTIVE.
@@ -35,6 +40,11 @@ spring:
     database-change-log-lock-table: DATABASECHANGELOGLOCK_OPERATIONS
 
   # RabbitMQ (ADR-004): solo se usa con MESSAGING_ENABLED=true
+  # fotos del informe de inspeccion: hasta 2 MB cada una y 5 por hallazgo
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 11MB
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -44,9 +54,6 @@ spring:
 server:
   port: ${OPERATIONS_PORT:3004}
   shutdown: graceful
-  error:
-    include-message: never
-    include-stacktrace: never
 
 security:
   jwt:
@@ -59,7 +66,7 @@ security:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,http://localhost:8081}
   messaging:
     # false: los eventos de ejecucion solo van al log
     enabled: ${MESSAGING_ENABLED:false}
@@ -67,12 +74,33 @@ app:
     # reservas: se leen y se mueven con el token de quien llama (REST, ADR-004)
     base-url: ${BOOKING_SERVICE_URL:http://localhost:3003/api/v1}
     timeout: ${BOOKING_SERVICE_TIMEOUT:3s}
+    # sin usuario detrás (asignación automática RF-008, operarios libres RF-010): rutas internas de
+    # booking con la llave compartida (no pasan por el gateway)
+    internal-url: ${BOOKING_INTERNAL_URL:http://localhost:3003}
+    internal-key: ${INTERNAL_API_KEY:}
+  # RF-008: al confirmarse una reserva se asigna sola al operario libre (o al que eligió el cliente).
+  # false: el administrador asigna a mano, como antes
+  auto-assign:
+    enabled: ${AUTO_ASSIGN_ENABLED:true}
   security-service:
     # nombre y contacto de los operarios (solo con token de admin)
     base-url: ${SECURITY_SERVICE_URL:http://localhost:3001/api/v1}
     timeout: ${SECURITY_SERVICE_TIMEOUT:3s}
+    # primer nombre de clientes y operarios en las calificaciones: contacto interno de security
+    # (no pasa por el gateway) con la misma llave que usa notification-service
+    internal-url: ${SECURITY_INTERNAL_URL:http://localhost:3001}
+    internal-key: ${INTERNAL_API_KEY:}
   # zona horaria del lavadero: turnos, ausencias y fechas se leen en esta hora
   zone: ${BOOKING_ZONE:America/Bogota}
+  # Reservas que terminaron y nadie cerró: sin operario quedan "no asistió" pasado el margen (el mismo
+  # de booking-service); con operario quedan "Por cerrar" para el admin y se avisa una vez
+  follow-up:
+    enabled: ${FOLLOW_UP_ENABLED:true}
+    interval: ${FOLLOW_UP_INTERVAL:PT5M}
+    grace-minutes: ${BOOKING_EXPIRY_GRACE_MINUTES:60}
+    # días hacia atrás que se revisan (el servidor puede pasar semanas apagado); no más de lo que
+    # cargan la web y el móvil, o "Por cerrar" no las mostraría
+    look-back-days: ${FOLLOW_UP_LOOK_BACK_DAYS:28}
 
 # Swagger apagado por defecto; application-dev.yml lo prende
 springdoc:

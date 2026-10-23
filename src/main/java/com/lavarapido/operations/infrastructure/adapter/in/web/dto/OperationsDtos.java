@@ -1,12 +1,17 @@
 package com.lavarapido.operations.infrastructure.adapter.in.web.dto;
 
+import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.model.Absence;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
+import com.lavarapido.operations.domain.model.OperatorWeekMetrics;
+import com.lavarapido.operations.domain.model.TeamSummary;
 import com.lavarapido.operations.domain.model.WeeklyAvailability;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.AssignmentView;
+import com.lavarapido.operations.domain.port.in.OperationsUseCase.CandidateView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorServiceView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.OperatorView;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase.RatingView;
+import com.lavarapido.operations.domain.port.in.OperationsUseCase.UnassignedView;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -63,6 +68,32 @@ public final class OperationsDtos {
         }
     }
 
+    /** Métricas semanales de un operario (OperatorMetricsCalculator); los null son "sin datos". */
+    public record OperatorMetricsResponse(LocalDate weekStart, LocalDate weekEnd, int completedServices,
+                                          int previousWeekServices, Integer servicesTrendPercent,
+                                          Integer punctualityPercent, String punctualityLevel, BigDecimal revenue,
+                                          double workedHours, double availableHours, Integer occupancyPercent) {
+
+        public static OperatorMetricsResponse from(OperatorWeekMetrics m) {
+            return new OperatorMetricsResponse(m.weekStart(), m.weekEnd(), m.completedServices(),
+                    m.previousWeekServices(), m.servicesTrendPercent(), m.punctualityPercent(), m.punctualityLevel(),
+                    m.revenue(), m.workedHours(), m.availableHours(), m.occupancyPercent());
+        }
+    }
+
+    /** Resumen del equipo (TeamSummaryCalculator); los null son "sin datos". */
+    public record TeamSummaryResponse(LocalDate weekStart, LocalDate weekEnd, int totalOperators, int activeOperators,
+                                      int availableToday, int absentToday, int completedServices,
+                                      int previousWeekServices, Integer servicesTrendPercent, Double averageRating,
+                                      int ratingsCount) {
+
+        public static TeamSummaryResponse from(TeamSummary s) {
+            return new TeamSummaryResponse(s.weekStart(), s.weekEnd(), s.totalOperators(), s.activeOperators(),
+                    s.availableToday(), s.absentToday(), s.completedServices(), s.previousWeekServices(),
+                    s.servicesTrendPercent(), s.averageRating(), s.ratingsCount());
+        }
+    }
+
     public record OperatorResponse(int id, long userId, String fullName, String email, String phone, boolean active,
                                    LocalDate hiredOn, List<ShiftResponse> week, int completedServices,
                                    Double averageRating, int ratingsCount) {
@@ -81,10 +112,46 @@ public final class OperationsDtos {
         }
     }
 
-    public record AssignmentResponse(long bookingId, int operatorId, String operatorName, String status) {
+    /** La bahia de esa reserva; null si todavia no se asigno ninguna. */
+    public record BayResponse(short id, String code, String name) {
+
+        public static BayResponse from(BookingSnapshot.Bay bay) {
+            return bay == null ? null : new BayResponse(bay.id(), bay.code(), bay.name());
+        }
+    }
+
+    public record AssignmentResponse(long bookingId, int operatorId, String operatorName, String status,
+                                     BayResponse bay) {
 
         public static AssignmentResponse from(AssignmentView view) {
-            return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(), view.status().name());
+            return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(),
+                    view.status().name(), BayResponse.from(view.bay()));
+        }
+    }
+
+    /** Reservas que todavía necesitan operario (la misma cuenta para el inicio y la pantalla de reservas). */
+    /** Reserva que terminó sin registrarse: NOT_STARTED (nadie le dio Iniciar) o NOT_FINISHED. */
+    public record ToCloseResponse(long bookingId, String reason, int operatorId) {
+
+        public static ToCloseResponse from(com.lavarapido.operations.domain.port.in.FollowUpUseCase.ToCloseView view) {
+            return new ToCloseResponse(view.bookingId(), view.reason().name(), view.operatorId());
+        }
+    }
+
+    public record UnassignedResponse(int count, List<Long> bookingIds) {
+
+        public static UnassignedResponse from(UnassignedView view) {
+            return new UnassignedResponse(view.count(), view.bookingIds());
+        }
+    }
+
+    /** Operario candidato para una reserva: available false trae el codigo del motivo. */
+    public record CandidateResponse(int operatorId, String fullName, Double averageRating, int ratingsCount,
+                                    boolean assigned, boolean available, String unavailableReason) {
+
+        public static CandidateResponse from(CandidateView view) {
+            return new CandidateResponse(view.operatorId(), view.fullName(), view.averageRating(), view.ratingsCount(),
+                    view.assigned(), view.unavailableReason() == null, view.unavailableReason());
         }
     }
 
@@ -92,22 +159,32 @@ public final class OperationsDtos {
     public record OperatorServiceResponse(long bookingId, String code, String bookingStatus, LocalDate date,
                                           LocalTime startTime, LocalTime endTime, String services, String vehicle,
                                           String plate, BigDecimal total, String status, Instant startedAt,
-                                          Instant finishedAt, Short rating, String comment) {
+                                          Instant finishedAt, Short rating, String comment, Instant startableAt,
+                                          String clientName) {
 
         public static OperatorServiceResponse from(OperatorServiceView view) {
             BookingSnapshot b = view.booking();
             return new OperatorServiceResponse(b.id(), b.code(), b.status(), b.date(), b.startTime(), b.endTime(),
                     b.servicesLabel(), b.vehicle(), b.plate(), b.total(), view.status().name(), view.startedAt(),
-                    view.finishedAt(), view.rating(), view.comment());
+                    view.finishedAt(), view.rating(), view.comment(), view.startableAt(), view.clientName());
+        }
+    }
+
+    /** Operario de una reserva del cliente (solo su primer nombre). */
+    public record BookingOperatorResponse(long bookingId, String operatorName) {
+
+        public static BookingOperatorResponse from(OperationsUseCase.BookingOperatorView view) {
+            return new BookingOperatorResponse(view.bookingId(), view.operatorName());
         }
     }
 
     public record RatingResponse(long bookingId, String bookingCode, LocalDate date, String services, String vehicle,
-                                 String plate, short rating, String comment, Instant ratedAt, String operatorName) {
+                                 String plate, short rating, String comment, Instant ratedAt, String operatorName,
+                                 String clientName) {
 
         public static RatingResponse from(RatingView view) {
             return new RatingResponse(view.bookingId(), view.bookingCode(), view.date(), view.services(), view.vehicle(),
-                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName());
+                    view.plate(), view.rating(), view.comment(), view.ratedAt(), view.operatorName(), view.clientName());
         }
     }
 }

@@ -66,4 +66,20 @@ class ServiceExecutionTest {
         execution.rate(5, "   ", NOW);
         assertNull(execution.comment());
     }
+
+    @Test
+    @DisplayName("el admin la cierra como atendida una sola vez, sin horas inventadas; iniciarla borra el aviso")
+    void closingAsAttendedAndTheNotice() {
+        ServiceExecution execution = ServiceExecution.assign(500L, 3);
+        execution.followUpNoticeSent(NOW);
+        execution.start(NOW.plusSeconds(60));
+        assertNull(execution.followUpNoticeAt());
+
+        ServiceExecution forgotten = ServiceExecution.assign(501L, 3);
+        forgotten.closeAsAttended();
+        assertEquals(ExecutionStatus.COMPLETED, forgotten.status());
+        assertNull(forgotten.startedAt());
+        assertNull(forgotten.finishedAt());
+        assertThrows(ConflictException.class, forgotten::closeAsAttended);
+    }
 }

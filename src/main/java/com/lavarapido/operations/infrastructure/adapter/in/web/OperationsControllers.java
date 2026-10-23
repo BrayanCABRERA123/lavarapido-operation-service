@@ -6,12 +6,17 @@ import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDto
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ActiveRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AssignmentResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.BookingOperatorResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.CandidateResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.AvailabilityRequest;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorMetricsResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.OperatorServiceResponse;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.TeamSummaryResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingRequest;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.RatingResponse;
 import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.ShiftRequest;
+import com.lavarapido.operations.infrastructure.adapter.in.web.dto.OperationsDtos.UnassignedResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -52,6 +57,18 @@ final class OperationsControllers {
         @GetMapping("/operators")
         List<OperatorResponse> operators() {
             return operations.operators().stream().map(OperatorResponse::from).toList();
+        }
+
+        /** Resumen del equipo para la lista de operarios (week = cualquier día de esa semana). */
+        @GetMapping("/operators/summary")
+        TeamSummaryResponse teamSummary(@RequestParam(required = false) LocalDate week) {
+            return TeamSummaryResponse.from(operations.teamSummary(week));
+        }
+
+        /** Servicios, puntualidad, ingresos y horas de la semana (week = cualquier día de esa semana). */
+        @GetMapping("/operators/{id}/metrics")
+        OperatorMetricsResponse metrics(@PathVariable int id, @RequestParam(required = false) LocalDate week) {
+            return OperatorMetricsResponse.from(operations.metrics(id, week));
         }
 
         @PatchMapping("/operators/{id}/status")
@@ -95,11 +112,24 @@ final class OperationsControllers {
             return AssignmentResponse.from(operations.assign(bookingId, request.operatorId(), AuthenticatedUser.userId(jwt)));
         }
 
+        /** Operarios con su disponibilidad real para esa reserva (turno, ausencias, cruces y estado). */
+        @GetMapping("/assignments/{bookingId}/candidates")
+        List<CandidateResponse> candidates(@PathVariable long bookingId) {
+            return operations.candidates(bookingId).stream().map(CandidateResponse::from).toList();
+        }
+
         /** Quien tiene cada reserva que empieza entre from y to (sin fechas: hoy). */
         @GetMapping("/assignments")
         List<AssignmentResponse> assignments(@RequestParam(required = false) LocalDate from,
                                              @RequestParam(required = false) LocalDate to) {
             return operations.assignments(from, to).stream().map(AssignmentResponse::from).toList();
+        }
+
+        /** Reservas sin operario que empiezan entre from y to (sin fechas: hoy). Una sola regla para todas las pantallas. */
+        @GetMapping("/assignments/unassigned")
+        UnassignedResponse unassigned(@RequestParam(required = false) LocalDate from,
+                                      @RequestParam(required = false) LocalDate to) {
+            return UnassignedResponse.from(operations.unassigned(from, to));
         }
     }
 
@@ -136,6 +166,23 @@ final class OperationsControllers {
         @GetMapping("/ratings")
         List<RatingResponse> ratings(@AuthenticationPrincipal Jwt jwt) {
             return operations.myRatings(AuthenticatedUser.userId(jwt)).stream().map(RatingResponse::from).toList();
+        }
+    }
+
+    /** Operario que atiende cada reserva del cliente (inicio e historial). Solo CLIENT. */
+    @RestController
+    @RequestMapping("/api/v1/operators")
+    static class ClientBookingOperatorController {
+
+        private final OperationsUseCase operations;
+
+        ClientBookingOperatorController(OperationsUseCase operations) {
+            this.operations = operations;
+        }
+
+        @GetMapping("/my-bookings")
+        List<BookingOperatorResponse> myBookings() {
+            return operations.myBookingOperators().stream().map(BookingOperatorResponse::from).toList();
         }
     }
 

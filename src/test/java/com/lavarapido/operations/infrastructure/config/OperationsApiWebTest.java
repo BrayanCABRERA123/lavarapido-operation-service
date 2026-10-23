@@ -1,6 +1,11 @@
 package com.lavarapido.operations.infrastructure.config;
 
+import com.lavarapido.operations.domain.port.in.OperatorProfileUseCase;
 import com.lavarapido.operations.domain.exception.ConflictException;
+import com.lavarapido.operations.domain.exception.NotFoundException;
+import com.lavarapido.operations.domain.port.in.InspectionUseCase;
+import com.lavarapido.operations.domain.port.in.InspectionUseCase.InspectionView;
+import com.lavarapido.operations.domain.port.in.FollowUpUseCase;
 import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.junit.jupiter.api.Test;
@@ -51,6 +56,15 @@ class OperationsApiWebTest {
     @MockitoBean
     private OperationsUseCase operations;
 
+    @MockitoBean
+    private FollowUpUseCase followUp;
+
+    @MockitoBean
+    private InspectionUseCase inspections;
+
+    @MockitoBean
+    private OperatorProfileUseCase operatorProfiles;
+
     private static String token(long userId, String role) {
         NimbusJwtEncoder encoder = new NimbusJwtEncoder(new ImmutableSecret<>(
                 new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256")));
@@ -93,6 +107,35 @@ class OperationsApiWebTest {
     }
 
     @Test
+    void inspectionIsForTheAdminAndTheLinkIsPublic() throws Exception {
+        given(inspections.forBooking(anyLong())).willReturn(new InspectionView(true, true, null));
+        given(inspections.published("no-existe")).willThrow(new NotFoundException("INSPECTION_NOT_FOUND", "none"));
+
+        mvc.perform(get("/api/v1/admin/inspections/50")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/inspections/50").header("Authorization", token(7L, "CLIENT")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/inspections/50").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.editable").value(true));
+        // el enlace del cliente no pide sesion; un token que no existe es 404, no 401
+        mvc.perform(get("/api/v1/public/inspections/no-existe"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INSPECTION_NOT_FOUND"));
+    }
+
+    @Test
+    void anySignedInUserCanSeeTheFreeOperators() throws Exception {
+        given(operations.availableOperators(any(), any(), anyInt())).willReturn(List.of());
+
+        mvc.perform(get("/api/v1/operators/available").param("date", "2026-10-20").param("time", "09:00")
+                        .param("minutes", "60"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/operators/available").param("date", "2026-10-20").param("time", "09:00")
+                        .param("minutes", "60").header("Authorization", token(7L, "CLIENT")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void businessErrorsCarryTheirCode() throws Exception {
         given(operations.assign(anyLong(), anyInt(), anyLong()))
                 .willThrow(new ConflictException("OPERATOR_BUSY", "busy"));
@@ -109,5 +152,23 @@ class OperationsApiWebTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"rating\":9}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void onlyTheAdminClosesABookingThatNobodyRegistered() throws Exception {
+        given(followUp.toClose(null, null)).willReturn(List.of(new FollowUpUseCase.ToCloseView(61L,
+                com.lavarapido.operations.domain.service.FollowUpPolicy.Reason.NOT_STARTED, 3)));
+
+        mvc.perform(get("/api/v1/admin/assignments/to-close").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/assignments/to-close").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].bookingId").value(61))
+                .andExpect(jsonPath("$[0].reason").value("NOT_STARTED"));
+        mvc.perform(post("/api/v1/admin/assignments/61/attended").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/admin/assignments/61/attended").header("Authorization", token(1L, "ADMIN")))
+                .andExpect(status().isNoContent());
+        org.mockito.Mockito.verify(followUp).closeAsAttended(61L, 1L);
     }
 }

@@ -1,7 +1,9 @@
 package com.lavarapido.operations.application.usecase;
 
+import com.lavarapido.operations.domain.port.in.OperationsUseCase;
 import com.lavarapido.operations.domain.event.ExecutionEvent;
 import com.lavarapido.operations.domain.exception.ConflictException;
+import com.lavarapido.operations.domain.exception.InvalidValueException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
 import com.lavarapido.operations.domain.model.ExecutionStatus;
@@ -32,6 +34,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -44,7 +47,8 @@ import static org.mockito.Mockito.verify;
 @DisplayName("OperationsService (asignacion, ejecucion y calificacion)")
 class OperationsServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-10-05T12:00:00Z");
+    // 10 minutos antes de la reserva de prueba (14:00Z): ya se puede iniciar (StartPolicy)
+    private static final Instant NOW = Instant.parse("2026-10-05T13:50:00Z");
     private static final long ADMIN = 1L;
     private static final long OPERATOR_USER = 30L;
     private static final long CLIENT = 7L;
@@ -73,7 +77,50 @@ class OperationsServiceTest {
         return new BookingSnapshot(50L, "RES-000050", status, LocalDate.of(2026, 10, 5), LocalTime.of(9, 0),
                 LocalTime.of(10, 0), Instant.parse("2026-10-05T14:00:00Z"), Instant.parse("2026-10-05T15:00:00Z"),
                 CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
-                List.of(new BookingSnapshot.Line(500L, "Premium"), new BookingSnapshot.Line(501L, "Encerado")));
+                List.of(new BookingSnapshot.Line(500L, "Premium"), new BookingSnapshot.Line(501L, "Encerado")),
+                new BookingSnapshot.Bay((short) 1, "BAY-01", "Bahía 1"));
+    }
+
+    @Test
+    @DisplayName("una reserva cancelada no aparece como asignación pendiente del operario")
+    void cancelledBookingIsNotListedAsAssignment() {
+        BookingSnapshot cancelled = new BookingSnapshot(52L, "RES-000052", "CANCELLED", LocalDate.of(2026, 10, 5),
+                LocalTime.of(11, 0), LocalTime.of(12, 0), Instant.parse("2026-10-05T16:00:00Z"),
+                Instant.parse("2026-10-05T17:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(520L, "Premium")), null);
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED"), cancelled));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 520L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        List<AssignmentView> assignments = service.assignments(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5));
+
+        assertEquals(List.of(50L), assignments.stream().map(AssignmentView::bookingId).toList());
+    }
+
+    @Test
+    @DisplayName("no se asigna una reserva cuya hora ya pasó (ej. una de hace una semana que nunca se cerró)")
+    void pastBookingIsNotAssignable() {
+        BookingSnapshot lastWeek = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 9, 28),
+                LocalTime.of(9, 0), LocalTime.of(10, 0), Instant.parse("2026-09-28T14:00:00Z"),
+                Instant.parse("2026-09-28T15:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(510L, "Premium")), null);
+        given(bookings.forAdmin(51L)).willReturn(Optional.of(lastWeek));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN));
+
+        assertEquals("BOOKING_IN_PAST", error.code());
+        verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("no se registra una ausencia que empiece en un día que ya pasó")
+    void absenceCannotStartInThePast() {
+        InvalidValueException error = assertThrows(InvalidValueException.class, () -> service.addAbsence(3,
+                LocalDate.of(2026, 10, 4).atStartOfDay(), LocalDate.of(2026, 10, 6).atStartOfDay(), "Permiso", ADMIN));
+
+        assertEquals("ABSENCE_IN_PAST", error.code());
+        verify(operators, never()).addAbsence(anyInt(), any(), anyLong());
     }
 
     @Test
@@ -90,6 +137,10 @@ class OperationsServiceTest {
 
         assertEquals(3, view.operatorId());
         assertEquals("Oscar Operario", view.operatorName());
+        // el candado va antes de mirar las reservas del operario y de guardar
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).saveAll(any(), eq(ADMIN));
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(ADMIN));
         assertEquals(2, saved.getValue().size());
@@ -119,6 +170,20 @@ class OperationsServiceTest {
 
         assertEquals(ExecutionStatus.IN_PROGRESS, service.start(50L, OPERATOR_USER).status());
         verify(bookings).advance(50L, "IN_PROGRESS");
+    }
+
+    @Test
+    @DisplayName("el operario ve el primer nombre del cliente en sus servicios, no la placa")
+    void servicesShowTheClientsFirstName() {
+        given(executions.findByOperator(3)).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        given(bookings.forOperator(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(users.firstNameOf(CLIENT)).willReturn("Carla");
+
+        List<OperationsUseCase.OperatorServiceView> mine = service.myServices(null, null, OPERATOR_USER);
+
+        assertEquals("Carla", mine.getFirst().clientName());
+        assertEquals("ABC-123", mine.getFirst().booking().plate());
     }
 
     @Test
@@ -162,6 +227,39 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("el cliente ve el primer nombre del operario de sus reservas; las que no tienen operario no salen")
+    void clientSeesTheOperatorOfHisBookings() {
+        BookingSnapshot unassigned = new BookingSnapshot(51L, "RES-000051", "CONFIRMED", LocalDate.of(2026, 10, 6),
+                LocalTime.of(9, 0), LocalTime.of(10, 0), Instant.parse("2026-10-06T14:00:00Z"),
+                Instant.parse("2026-10-06T15:00:00Z"), CLIENT, "Mazda 3", "ABC-123", new BigDecimal("35000"),
+                List.of(new BookingSnapshot.Line(510L, "Premium")), new BookingSnapshot.Bay((short) 1, "BAY-01", "Bahía 1"));
+        given(bookings.mine()).willReturn(List.of(booking("CONFIRMED"), unassigned));
+        given(users.firstNameOf(OPERATOR_USER)).willReturn("Oscar");
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        List<OperationsUseCase.BookingOperatorView> views = service.myBookingOperators();
+
+        assertEquals(List.of(new OperationsUseCase.BookingOperatorView(50L, "Oscar")), views);
+    }
+
+    @Test
+    @DisplayName("la calificación lleva el primer nombre del operario (para el cliente) y del cliente (para el operario)")
+    void ratingShowsFirstNames() {
+        given(users.firstNameOf(OPERATOR_USER)).willReturn("Oscar");
+        given(users.firstNameOf(CLIENT)).willReturn("Ana");
+        given(bookings.forCustomer(50L)).willReturn(Optional.of(booking("COMPLETED")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.COMPLETED, NOW, NOW, null, null, null, true)));
+
+        RatingView view = service.rate(50L, 4, "Bien", CLIENT);
+
+        assertEquals("Oscar", view.operatorName());
+        assertEquals("Ana", view.clientName());
+    }
+
+    @Test
     @DisplayName("no se califica una reserva sin terminar ni la de otro cliente")
     void cannotRate() {
         given(bookings.forCustomer(50L)).willReturn(Optional.of(booking("CONFIRMED")));
@@ -175,14 +273,138 @@ class OperationsServiceTest {
     @DisplayName("una cuenta OPERATOR sin fila de operario se crea al listar")
     void provisionsOperators() {
         given(operators.findAll()).willReturn(List.of());
-        given(operators.save(any(Operator.class), anyLong())).willAnswer(invocation -> {
-            Operator created = invocation.getArgument(0);
-            created.assignId(4);
-            return created;
-        });
+        given(operators.provision(eq(OPERATOR_USER), any(LocalDate.class), anyLong()))
+                .willReturn(Operator.restore(4, OPERATOR_USER, LocalDate.of(2026, 10, 5), true));
         given(operators.availability(4)).willReturn(List.of());
         given(executions.findByOperator(4)).willReturn(List.of());
 
         assertEquals(4, service.operators().getFirst().operatorId());
+    }
+
+    @Test
+    @DisplayName("el primer ingreso de un operario nuevo crea su fila y le muestra sus servicios")
+    void firstVisitOfANewOperatorProvisionsIt() {
+        long newcomer = 31L;
+        given(operators.findByUserId(newcomer)).willReturn(Optional.empty());
+        given(users.accountMissing(newcomer)).willReturn(false);
+        given(operators.provision(eq(newcomer), any(LocalDate.class), eq(newcomer)))
+                .willReturn(Operator.restore(5, newcomer, LocalDate.of(2026, 10, 5), true));
+        given(executions.findByOperator(5)).willReturn(List.of());
+        given(bookings.forOperator(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of());
+
+        assertTrue(service.myServices(null, null, newcomer).isEmpty());
+        verify(operators).provision(eq(newcomer), any(LocalDate.class), eq(newcomer));
+    }
+
+    @Test
+    @DisplayName("un token de una cuenta que no existe en security no crea filas de operario")
+    void missingAccountIsNotProvisioned() {
+        long ghost = 99L;
+        given(operators.findByUserId(ghost)).willReturn(Optional.empty());
+        given(users.accountMissing(ghost)).willReturn(true);
+
+        NotFoundException error = assertThrows(NotFoundException.class, () -> service.myServices(null, null, ghost));
+
+        assertEquals("OPERATOR_NOT_FOUND", error.code());
+        verify(operators, never()).provision(anyLong(), any(), anyLong());
+    }
+
+    // ------------------------------------------------------------------ RF-008 / RF-010
+
+    private final Operator second = Operator.restore(4, 40L, LocalDate.of(2026, 1, 1), true);
+
+    private void twoOperatorsOnShiftMonday() {
+        given(operators.findAll()).willReturn(List.of(operator, second));
+        given(operators.findById(4)).willReturn(Optional.of(second));
+        given(operators.availability(anyInt())).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+        given(bookings.forService(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forService(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+    }
+
+    @Test
+    @DisplayName("al confirmarse, la reserva se asigna sola al operario que eligió el cliente si está libre")
+    void autoAssignHonoursTheClientsChoice() {
+        twoOperatorsOnShiftMonday();
+
+        Optional<AssignmentView> assigned = service.autoAssign(50L, CLIENT, 4);
+
+        assertEquals(4, assigned.orElseThrow().operatorId());
+        verify(executions).saveAll(org.mockito.ArgumentMatchers.argThat(list -> list.size() == 2
+                && list.stream().allMatch(e -> e.operatorId() == 4)), anyLong());
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(40L, event.getValue().operatorUserId());
+        assertEquals(CLIENT, event.getValue().customerUserId());
+    }
+
+    @Test
+    @DisplayName("sin elección, al libre con menos reservas; si ya tenía operario no se toca")
+    void autoAssignLeastBusyAndKeepsAnExistingAssignment() {
+        twoOperatorsOnShiftMonday();
+        assertEquals(3, service.autoAssign(50L, CLIENT, null).orElseThrow().operatorId());
+        // la automática también toma el candado antes de guardar
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).saveAll(any(), anyLong());
+
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        assertTrue(service.autoAssign(50L, CLIENT, 3).isEmpty());
+    }
+
+    @Test
+    @DisplayName("el cliente ve solo los operarios libres en su horario, con el primer nombre")
+    void availableOperatorsForTheClient() {
+        twoOperatorsOnShiftMonday();
+        given(operators.availability(4)).willReturn(List.of());
+        given(executions.findRated(anyInt())).willReturn(List.of());
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", true)));
+
+        var free = service.availableOperators(LocalDate.of(2026, 10, 5), LocalTime.of(11, 0), 60);
+
+        assertEquals(1, free.size());
+        assertEquals(3, free.getFirst().operatorId());
+        assertEquals("Oscar", free.getFirst().firstName());
+    }
+
+    @Test
+    @DisplayName("una cuenta desactivada en security no recibe servicios aunque su fila de operario siga activa")
+    void disabledAccountsAreNotAssigned() {
+        twoOperatorsOnShiftMonday();
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
+        given(users.contactOf(40L)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Ana", true)));
+
+        assertEquals(4, service.autoAssign(50L, CLIENT, 3).orElseThrow().operatorId());
+    }
+
+    @Test
+    @DisplayName("sin asignar: solo programadas o confirmadas que no han terminado y sin operario, por hora")
+    void unassignedFollowsOneRule() {
+        BookingSnapshot later = snapshot(53L, "CONFIRMED", "2026-10-05T19:00:00Z", 530L);
+        BookingSnapshot assigned = booking("CONFIRMED");
+        BookingSnapshot earlier = snapshot(54L, "SCHEDULED", "2026-10-05T16:00:00Z", 540L);
+        BookingSnapshot alreadyOver = snapshot(55L, "CONFIRMED", "2026-10-05T12:00:00Z", 550L);
+        BookingSnapshot running = snapshot(56L, "IN_PROGRESS", "2026-10-05T13:30:00Z", 560L);
+        BookingSnapshot cancelled = snapshot(57L, "CANCELLED", "2026-10-05T18:00:00Z", 570L);
+        given(bookings.forAdmin(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5)))
+                .willReturn(List.of(later, assigned, earlier, alreadyOver, running, cancelled));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        var unassigned = service.unassigned(null, null);
+
+        assertEquals(List.of(54L, 53L), unassigned.bookingIds());
+        assertEquals(2, unassigned.count());
+    }
+
+    private static BookingSnapshot snapshot(long id, String status, String startUtc, long lineId) {
+        Instant start = Instant.parse(startUtc);
+        java.time.ZonedDateTime local = start.atZone(java.time.ZoneId.of("America/Bogota"));
+        return new BookingSnapshot(id, "RES-0000" + id, status, local.toLocalDate(), local.toLocalTime(),
+                local.toLocalTime().plusHours(1), start, start.plusSeconds(3600), CLIENT, "Mazda 3", "ABC-123",
+                new BigDecimal("35000"), List.of(new BookingSnapshot.Line(lineId, "Premium")), null);
     }
 }

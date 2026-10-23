@@ -1,6 +1,7 @@
 package com.lavarapido.operations.infrastructure.adapter.out.messaging;
 
 import com.lavarapido.operations.domain.event.ExecutionEvent;
+import com.lavarapido.operations.domain.event.InspectionSharedEvent;
 import com.lavarapido.operations.domain.port.out.DomainEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,17 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
 
     @Override
     public void publish(ExecutionEvent event) {
-        Runnable send = () -> send(event);
+        afterCommit(() -> send(event.type().eventName(), event.type().routingKey(), event.bookingId(),
+                event.occurredAt().toString(), payloadOf(event)));
+    }
+
+    @Override
+    public void publishInspectionShared(InspectionSharedEvent event) {
+        afterCommit(() -> send(InspectionSharedEvent.EVENT_NAME, InspectionSharedEvent.ROUTING_KEY, event.bookingId(),
+                event.occurredAt().toString(), payloadOf(event)));
+    }
+
+    private static void afterCommit(Runnable send) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -57,15 +68,15 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
         }
     }
 
-    private void send(ExecutionEvent event) {
+    private void send(String eventName, String routingKey, long bookingId, String occurredAt, Map<String, Object> payload) {
         String eventId = UUID.randomUUID().toString();
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", eventId);
-        envelope.put("eventType", event.type().eventName());
-        envelope.put("aggregateId", String.valueOf(event.bookingId()));
-        envelope.put("occurredAt", event.occurredAt().toString());
+        envelope.put("eventType", eventName);
+        envelope.put("aggregateId", String.valueOf(bookingId));
+        envelope.put("occurredAt", occurredAt);
         envelope.put("version", CONTRACT_VERSION);
-        envelope.put("payload", payloadOf(event));
+        envelope.put("payload", payload);
         try {
             Message message = MessageBuilder.withBody(json.writeValueAsBytes(envelope))
                     .setContentType(MessageProperties.CONTENT_TYPE_JSON)
@@ -73,10 +84,10 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
                     .setMessageId(eventId)
                     .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                     .build();
-            rabbit.send(EXCHANGE, event.type().routingKey(), message);
-            log.info("Published {} ({}) for booking {}", event.type().eventName(), eventId, event.bookingId());
+            rabbit.send(EXCHANGE, routingKey, message);
+            log.info("Published {} ({}) for booking {}", eventName, eventId, bookingId);
         } catch (AmqpException e) {
-            log.error("Could not publish {} ({}) to RabbitMQ: {}", event.type().eventName(), eventId, e.getMessage());
+            log.error("Could not publish {} ({}) to RabbitMQ: {}", eventName, eventId, e.getMessage());
         }
     }
 
@@ -88,6 +99,22 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
         payload.put("customerUserId", event.customerUserId());
         payload.put("operatorUserId", event.operatorUserId());
         payload.put("scheduledStart", event.scheduledStart() == null ? null : event.scheduledStart().toString());
+        return payload;
+    }
+
+    /** Payload de execution.inspection_shared: el resumen y el token del enlace; notification arma el texto. */
+    static Map<String, Object> payloadOf(InspectionSharedEvent event) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("bookingId", event.bookingId());
+        payload.put("bookingCode", event.bookingCode());
+        payload.put("customerUserId", event.customerUserId());
+        payload.put("plate", event.plate());
+        payload.put("publicToken", event.publicToken());
+        payload.put("phasesDone", event.phasesDone());
+        payload.put("phasesTotal", event.phasesTotal());
+        payload.put("findings", event.findings());
+        payload.put("majorFindings", event.majorFindings());
+        payload.put("areas", event.areas());
         return payload;
     }
 }

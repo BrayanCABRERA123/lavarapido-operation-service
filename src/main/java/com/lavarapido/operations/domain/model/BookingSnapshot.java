@@ -12,10 +12,14 @@ import java.util.List;
  */
 public record BookingSnapshot(long id, String code, String status, LocalDate date, LocalTime startTime,
                               LocalTime endTime, Instant scheduledStart, Instant scheduledEnd, Long ownerUserId,
-                              String vehicle, String plate, BigDecimal total, List<Line> lines) {
+                              String vehicle, String plate, BigDecimal total, List<Line> lines, Bay bay) {
 
     /** Una linea de la reserva: lineId es booking_service_id. */
     public record Line(long lineId, String serviceName) {
+    }
+
+    /** La bahia de la reserva (booking.service_bay_id); null si todavia no se asigno ninguna. */
+    public record Bay(short id, String code, String name) {
     }
 
     public List<Long> lineIds() {

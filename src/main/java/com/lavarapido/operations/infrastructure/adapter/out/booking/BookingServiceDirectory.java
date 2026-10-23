@@ -34,12 +34,63 @@ import java.util.function.Supplier;
 class BookingServiceDirectory implements BookingDirectory {
 
     private static final Logger log = LoggerFactory.getLogger(BookingServiceDirectory.class);
+    private static final String INTERNAL_HEADER = "X-Internal-Key";
 
     private final RestClient client;
+    // rutas internas de booking (/internal/v1/bookings): no pasan por el gateway y piden la llave
+    private final RestClient internal;
+    private final String internalKey;
 
     BookingServiceDirectory(@Value("${app.booking-service.base-url}") String baseUrl,
-                            @Value("${app.booking-service.timeout:3s}") Duration timeout) {
+                            @Value("${app.booking-service.timeout:3s}") Duration timeout,
+                            @Value("${app.booking-service.internal-url:http://localhost:3003}") String internalUrl,
+                            @Value("${app.booking-service.internal-key:}") String internalKey) {
         this.client = RestSupport.client(baseUrl, timeout);
+        this.internal = RestSupport.client(internalUrl, timeout);
+        this.internalKey = internalKey == null ? "" : internalKey.strip();
+    }
+
+    @Override
+    public Optional<BookingSnapshot> forService(long bookingId) {
+        requireInternalKey();
+        return one(() -> internal.get().uri("/internal/v1/bookings/{id}", bookingId)
+                .header(INTERNAL_HEADER, internalKey).retrieve().body(BookingJson.class));
+    }
+
+    @Override
+    public List<BookingSnapshot> forService(LocalDate from, LocalDate to) {
+        requireInternalKey();
+        return many(() -> internal.get()
+                .uri(uri -> uri.path("/internal/v1/bookings").queryParam("from", from).queryParam("to", to).build())
+                .header(INTERNAL_HEADER, internalKey)
+                .retrieve()
+                .body(BookingJson[].class));
+    }
+
+    @Override
+    public void markUnattended(long bookingId) {
+        requireInternalKey();
+        try {
+            internal.post().uri("/internal/v1/bookings/{id}/no-show", bookingId)
+                    .header(INTERNAL_HEADER, internalKey)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                throw new ConflictException("BOOKING_STATE_CONFLICT", "The booking cannot be closed as not attended");
+            }
+            throw unavailable(e);
+        } catch (RestClientException e) {
+            throw unavailable(e);
+        }
+    }
+
+    // sin llave no hay asignación automática ni lista de operarios libres: mejor fallar claro
+    private void requireInternalKey() {
+        if (internalKey.isEmpty()) {
+            throw new DependencyUnavailableException("BOOKING_SERVICE_UNAVAILABLE",
+                    "INTERNAL_API_KEY is not set: booking-service cannot be read without a user");
+        }
     }
 
     @Override
@@ -138,7 +189,7 @@ class BookingServiceDirectory implements BookingDirectory {
     // forma del JSON de booking-service (solo los campos que se usan)
     record BookingJson(long id, String code, String status, LocalDate date, LocalTime startTime, LocalTime endTime,
                        Instant scheduledStart, Instant scheduledEnd, Long ownerUserId, VehicleJson vehicle,
-                       BigDecimal total, List<LineJson> services) {
+                       BigDecimal total, List<LineJson> services, BayJson bay) {
 
         BookingSnapshot toSnapshot() {
             String vehicleName = vehicle == null ? "" : vehicle.label();
@@ -148,7 +199,7 @@ class BookingServiceDirectory implements BookingDirectory {
                     .toList();
             return new BookingSnapshot(id, code, status, date, startTime, endTime, scheduledStart, scheduledEnd,
                     ownerUserId, vehicleName, vehicle == null ? "" : nullToEmpty(vehicle.licensePlateFormatted()),
-                    total == null ? BigDecimal.ZERO : total, lines);
+                    total == null ? BigDecimal.ZERO : total, lines, bay == null ? null : bay.toBay());
         }
     }
 
@@ -161,6 +212,14 @@ class BookingServiceDirectory implements BookingDirectory {
     }
 
     record LineJson(Long lineId, String name) {
+    }
+
+    // mismo shape que ScheduleDtos.BayResponse en booking-service
+    record BayJson(short id, String code, String name, String status) {
+
+        BookingSnapshot.Bay toBay() {
+            return new BookingSnapshot.Bay(id, code, name);
+        }
     }
 
     private static String nullToEmpty(String value) {
