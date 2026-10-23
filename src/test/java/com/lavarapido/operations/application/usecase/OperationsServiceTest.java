@@ -107,7 +107,7 @@ class OperationsServiceTest {
                 List.of(new BookingSnapshot.Line(510L, "Premium")), null);
         given(bookings.forAdmin(51L)).willReturn(Optional.of(lastWeek));
 
-        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN));
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN, null));
 
         assertEquals("BOOKING_IN_PAST", error.code());
         verify(events, never()).publish(any());
@@ -133,7 +133,7 @@ class OperationsServiceTest {
         given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
         given(executions.findByLineIds(any())).willReturn(List.of());
 
-        AssignmentView view = service.assign(50L, 3, ADMIN);
+        AssignmentView view = service.assign(50L, 3, ADMIN, "Llevar cera extra");
 
         assertEquals(3, view.operatorId());
         assertEquals("Oscar Operario", view.operatorName());
@@ -144,6 +144,9 @@ class OperationsServiceTest {
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(ADMIN));
         assertEquals(2, saved.getValue().size());
+        // B-01: las notas del administrador quedan en cada linea asignada
+        saved.getValue().forEach(execution -> assertEquals("Llevar cera extra", execution.assignmentNotes()));
+        assertEquals("Llevar cera extra", view.notes());
         ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
         verify(events).publish(event.capture());
         assertEquals(ExecutionEvent.Type.OPERATOR_ASSIGNED, event.getValue().type());
@@ -155,7 +158,7 @@ class OperationsServiceTest {
     @DisplayName("una reserva que ya empezo o termino no se asigna")
     void cannotAssignStartedBooking() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
-        assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN));
+        assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
         verify(events, never()).publish(any());
     }
 

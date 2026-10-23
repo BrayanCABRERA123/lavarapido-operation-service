@@ -137,7 +137,7 @@ class OperationsApiWebTest {
 
     @Test
     void businessErrorsCarryTheirCode() throws Exception {
-        given(operations.assign(anyLong(), anyInt(), anyLong()))
+        given(operations.assign(anyLong(), anyInt(), anyLong(), any()))
                 .willThrow(new ConflictException("OPERATOR_BUSY", "busy"));
 
         mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))

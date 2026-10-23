@@ -49,6 +49,9 @@ public class ServiceExecutionJpaEntity {
     @Column(name = "follow_up_notice_at")
     private Instant followUpNoticeAt;
 
+    @Column(name = "assignment_notes", length = 300)
+    private String assignmentNotes;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -160,5 +163,13 @@ public class ServiceExecutionJpaEntity {
 
     public void setFollowUpNoticeAt(Instant followUpNoticeAt) {
         this.followUpNoticeAt = followUpNoticeAt;
+    }
+
+    public String getAssignmentNotes() {
+        return assignmentNotes;
+    }
+
+    public void setAssignmentNotes(String assignmentNotes) {
+        this.assignmentNotes = assignmentNotes;
     }
 }

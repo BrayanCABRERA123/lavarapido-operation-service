@@ -34,7 +34,7 @@ public interface OperationsUseCase {
      * cambia reserva por reserva; esto es lo que permite ver "quien esta en cual bahia ahora".
      */
     record AssignmentView(long bookingId, int operatorId, String operatorName, ExecutionStatus status,
-                          BookingSnapshot.Bay bay) {
+                          BookingSnapshot.Bay bay, String notes) {
     }
 
     /**
@@ -109,7 +109,8 @@ public interface OperationsUseCase {
     void removeAbsence(int operatorId, int absenceId, long adminId);
 
     /** Asigna (o cambia) el operario de todas las lineas de la reserva (RF-008/009). */
-    AssignmentView assign(long bookingId, int operatorId, long adminId);
+    /** notes: indicaciones del administrador para el operario (B-01, opcional, hasta 300 caracteres). */
+    AssignmentView assign(long bookingId, int operatorId, long adminId, String notes);
 
     /** Todos los operarios con su disponibilidad real para esa reserva (mismas reglas que assign). */
     List<CandidateView> candidates(long bookingId);

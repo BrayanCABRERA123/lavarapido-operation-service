@@ -36,7 +36,7 @@ Desde afuera se llega por el API Gateway (puerto 8080).
 | GET · PUT | `/admin/operators/profiles`, `/admin/operators/{id}/profile` | ADMIN | Perfil del operario (especialidad y habilidades por nivel) |
 | GET | `/admin/assignments` | ADMIN | Asignaciones de reservas |
 | GET | `/admin/assignments/{bookingId}/candidates` | ADMIN | Operarios libres para una reserva |
-| PUT | `/admin/assignments/{bookingId}` | ADMIN | Asignar o reasignar a mano |
+| PUT | `/admin/assignments/{bookingId}` | ADMIN | Asignar o reasignar a mano: `{operatorId, notes}` (notas para el operario, opcionales, hasta 300 caracteres; changelog 042) |
 | GET · POST | `/admin/inspections/{bookingId}` | ADMIN | Ver o iniciar el informe de inspección |
 | PATCH | `/admin/inspections/{bookingId}/phases/{phase}` | ADMIN | Abrir o cerrar una fase |
 | POST · DELETE | `/admin/inspections/{bookingId}/findings[/{findingId}]` | ADMIN | Hallazgo con hasta 5 fotos (multipart, 2 MB cada una) |

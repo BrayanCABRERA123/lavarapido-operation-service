@@ -90,6 +90,7 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
             entity.setRatedAt(execution.ratedAt());
             entity.setCommentVisible(execution.commentVisible());
             entity.setFollowUpNoticeAt(execution.followUpNoticeAt());
+            entity.setAssignmentNotes(execution.assignmentNotes());
             ServiceExecutionJpaEntity row = executions.save(entity);
             if (execution.id() == null) {
                 execution.assignId(row.getId());
@@ -100,8 +101,10 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
     }
 
     private static ServiceExecution toDomain(ServiceExecutionJpaEntity e) {
-        return ServiceExecution.restore(e.getId(), e.getBookingServiceId(), e.getOperatorId(),
+        ServiceExecution execution = ServiceExecution.restore(e.getId(), e.getBookingServiceId(), e.getOperatorId(),
                 ExecutionStatus.ofId(e.getStatusId()), e.getStartedAt(), e.getFinishedAt(), e.getRating(),
                 e.getComment(), e.getRatedAt(), e.getCommentVisible(), e.getFollowUpNoticeAt());
+        execution.restoreAssignmentNotes(e.getAssignmentNotes());
+        return execution;
     }
 }

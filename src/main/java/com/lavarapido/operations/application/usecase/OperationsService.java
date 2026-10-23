@@ -184,7 +184,7 @@ public class OperationsService implements OperationsUseCase {
     }
 
     @Override
-    public AssignmentView assign(long bookingId, int operatorId, long adminId) {
+    public AssignmentView assign(long bookingId, int operatorId, long adminId, String notes) {
         BookingSnapshot booking = bookings.forAdmin(bookingId)
                 .orElseThrow(() -> new NotFoundException("BOOKING_NOT_FOUND", "Booking not found"));
         if (!ASSIGNABLE.contains(booking.status())) {
@@ -209,9 +209,9 @@ public class OperationsService implements OperationsUseCase {
         for (long lineId : booking.lineIds()) {
             ServiceExecution execution = existing.get(lineId);
             if (execution == null) {
-                toSave.add(ServiceExecution.assign(lineId, operatorId));
+                toSave.add(ServiceExecution.assign(lineId, operatorId, notes));
             } else {
-                execution.reassign(operatorId);
+                execution.reassign(operatorId, notes);
                 toSave.add(execution);
             }
         }
@@ -219,7 +219,8 @@ public class OperationsService implements OperationsUseCase {
 
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
-        return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay());
+        return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay(),
+                toSave.isEmpty() ? null : toSave.getFirst().assignmentNotes());
     }
 
     @Override
@@ -261,7 +262,7 @@ public class OperationsService implements OperationsUseCase {
                 SYSTEM_ACTOR);
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 customerUserId, operator.userId(), booking.scheduledStart(), clock.instant()));
-        return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay()));
+        return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay(), null));
     }
 
     /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
@@ -372,7 +373,7 @@ public class OperationsService implements OperationsUseCase {
             if (lines.isEmpty()) continue;
             int operatorId = lines.getFirst().operatorId();
             result.add(new AssignmentView(booking.id(), operatorId, names.getOrDefault(operatorId, ""),
-                    statusOf(lines), booking.bay()));
+                    statusOf(lines), booking.bay(), lines.getFirst().assignmentNotes()));
         }
         return result;
     }

@@ -109,7 +109,8 @@ final class OperationsControllers {
         @PutMapping("/assignments/{bookingId}")
         AssignmentResponse assign(@AuthenticationPrincipal Jwt jwt, @PathVariable long bookingId,
                                   @Valid @RequestBody AssignRequest request) {
-            return AssignmentResponse.from(operations.assign(bookingId, request.operatorId(), AuthenticatedUser.userId(jwt)));
+            return AssignmentResponse.from(operations.assign(bookingId, request.operatorId(), AuthenticatedUser.userId(jwt),
+                    request.notes()));
         }
 
         /** Operarios con su disponibilidad real para esa reserva (turno, ausencias, cruces y estado). */
