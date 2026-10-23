@@ -57,6 +57,10 @@ Errores: `application/problem+json` con `code`.
 - Turnos, ausencias y fechas se leen en la zona del lavadero (`BOOKING_ZONE`, `America/Bogota`).
 - Las reservas se leen y se mueven en booking-service con el token de quien llama; las tareas
   sin usuario (asignación automática) usan las rutas internas con `INTERNAL_API_KEY`.
+- Iniciar y terminar un servicio (`/api/v1/operator/services/**`) es el único camino del operario:
+  aquí se valida que la reserva esté asignada a él y la regla de los 15 minutos, y booking solo
+  acepta sus rutas `/api/v1/operator/bookings/**` con el token **y** `INTERNAL_API_KEY` (E-01).
+  Sin la llave, el operario no puede iniciar ni terminar servicios.
 - El informe de inspección publicado se abre con un token en el enlace, sin iniciar sesión.
 
 ## Variables
