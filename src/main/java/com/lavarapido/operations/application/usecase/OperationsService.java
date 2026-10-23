@@ -195,6 +195,10 @@ public class OperationsService implements OperationsUseCase {
             throw new ConflictException("BOOKING_IN_PAST", "A booking whose time has already passed cannot be assigned");
         }
         Operator operator = requireOperator(operatorId);
+        // A-13: igual que la automática, una cuenta desactivada en security no recibe servicios
+        if (!accountActive(operator)) {
+            throw new ConflictException("OPERATOR_ACCOUNT_DISABLED", "The operator account is disabled");
+        }
 
         // con las asignaciones bloqueadas, las reservas del operario se leen ya con la automatica hecha
         executions.lockAssignments();
@@ -234,17 +238,24 @@ public class OperationsService implements OperationsUseCase {
         }
         // con las asignaciones bloqueadas: una asignacion manual al mismo tiempo se ve antes de elegir
         executions.lockAssignments();
-        // una reprogramación conserva al operario que ya tenía; lo cambia el administrador si hace falta
-        if (!executions.findByLineIds(booking.lineIds()).isEmpty()) {
+        List<ServiceExecution> current = executions.findByLineIds(booking.lineIds());
+        if (current.stream().anyMatch(e -> e.status() != ExecutionStatus.PENDING)) {
             return Optional.empty();
         }
         List<BookingSnapshot> sameDay = bookings.forService(booking.date(), booking.date()).stream()
                 .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
                 .toList();
         List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
+        // E-12: una reprogramación conserva al operario solo si todavía puede a la hora nueva (turno,
+        // ausencias, cruces y cuenta activa); si no, pasa a uno libre. Sin nadie libre se queda como estaba.
+        Integer previous = current.isEmpty() ? null : current.getFirst().operatorId();
+        if (previous != null && stillFits(previous, booking, busyWith(sameDay, sameDayExecutions, previous))) {
+            return Optional.empty();
+        }
         List<AutoAssignmentPolicy.Candidate> free = new ArrayList<>();
         for (Operator operator : operators.findAll()) {
             int id = operator.id();
+            if (previous != null && id == previous) continue;
             List<BookingSnapshot> busy = busyWith(sameDay, sameDayExecutions, id);
             String reason = AssignmentPolicy.blockingReason(operator, operators.availability(id),
                     operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking, busy);
@@ -257,11 +268,28 @@ public class OperationsService implements OperationsUseCase {
             return Optional.empty();
         }
         Operator operator = requireOperator(chosen.get());
-        executions.saveAll(booking.lineIds().stream().map(line -> ServiceExecution.assign(line, operator.id())).toList(),
-                SYSTEM_ACTOR);
+        if (current.isEmpty()) {
+            executions.saveAll(booking.lineIds().stream().map(line -> ServiceExecution.assign(line, operator.id())).toList(),
+                    SYSTEM_ACTOR);
+        } else {
+            current.forEach(execution -> execution.reassign(operator.id()));
+            executions.saveAll(current, SYSTEM_ACTOR);
+        }
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 customerUserId, operator.userId(), booking.scheduledStart(), clock.instant()));
         return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay()));
+    }
+
+    /** E-12: el operario puede tomar la reserva en su hora (actual) y su cuenta sigue activa. */
+    private boolean stillFits(int operatorId, BookingSnapshot booking, List<BookingSnapshot> busy) {
+        Optional<Operator> found = operators.findById(operatorId);
+        if (found.isEmpty()) {
+            return false;
+        }
+        Operator operator = found.get();
+        return AssignmentPolicy.blockingReason(operator, operators.availability(operatorId),
+                operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking, busy) == null
+                && accountActive(operator);
     }
 
     /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
@@ -324,9 +352,14 @@ public class OperationsService implements OperationsUseCase {
         List<CandidateView> result = new ArrayList<>();
         for (OperatorView view : operators()) {
             int id = view.operatorId();
-            String reason = AssignmentPolicy.blockingReason(requireOperator(id), operators.availability(id),
+            Operator candidate = requireOperator(id);
+            String reason = AssignmentPolicy.blockingReason(candidate, operators.availability(id),
                     operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking,
                     busyWith(sameDay, sameDayExecutions, id));
+            // A-13: la lista del admin también avisa la cuenta desactivada
+            if (reason == null && !accountActive(candidate)) {
+                reason = "OPERATOR_ACCOUNT_DISABLED";
+            }
             result.add(new CandidateView(id, view.fullName(), view.averageRating(), view.ratingsCount(),
                     current.contains(id), reason));
         }

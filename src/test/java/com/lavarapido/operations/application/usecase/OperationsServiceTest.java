@@ -152,6 +152,18 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("A-13: la asignación manual rechaza un operario con la cuenta desactivada en security")
+    void manualAssignmentChecksTheAccount() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN));
+
+        assertEquals("OPERATOR_ACCOUNT_DISABLED", error.code());
+        verify(executions, never()).saveAll(any(), anyLong());
+    }
+
+    @Test
     @DisplayName("una reserva que ya empezo o termino no se asigna")
     void cannotAssignStartedBooking() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
@@ -353,6 +365,23 @@ class OperationsServiceTest {
         given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
                 ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));
         assertTrue(service.autoAssign(50L, CLIENT, 3).isEmpty());
+    }
+
+    @Test
+    @DisplayName("E-12: al reprogramar, si el operario ya no puede a la hora nueva, pasa a uno libre")
+    void rescheduleRevalidatesTheOperator() {
+        twoOperatorsOnShiftMonday();
+        // el operario 4 tenía la reserva, pero a la hora nueva no tiene turno
+        given(operators.availability(4)).willReturn(List.of());
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        Optional<AssignmentView> assigned = service.autoAssign(50L, CLIENT, null);
+
+        assertEquals(3, assigned.orElseThrow().operatorId());
+        verify(executions).saveAll(org.mockito.ArgumentMatchers.argThat(list -> list.size() == 2
+                && list.stream().allMatch(e -> e.operatorId() == 3)), anyLong());
     }
 
     @Test
