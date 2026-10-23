@@ -160,7 +160,7 @@ class OperationsServiceTest {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
         given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
 
-        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN));
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
 
         assertEquals("OPERATOR_ACCOUNT_DISABLED", error.code());
         verify(executions, never()).saveAll(any(), anyLong());
