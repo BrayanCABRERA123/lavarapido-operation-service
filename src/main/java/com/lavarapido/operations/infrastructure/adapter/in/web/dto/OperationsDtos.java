@@ -53,7 +53,8 @@ public final class OperationsDtos {
                                  @NotBlank @Size(max = 120) String reason) {
     }
 
-    public record AssignRequest(@NotNull Integer operatorId) {
+    /** B-01: notes son las indicaciones para el operario (opcional). */
+    public record AssignRequest(@NotNull Integer operatorId, @Size(max = 300) String notes) {
     }
 
     public record RatingRequest(@NotNull @Min(1) @Max(5) Integer rating, @Size(max = 500) String comment) {
@@ -121,11 +122,11 @@ public final class OperationsDtos {
     }
 
     public record AssignmentResponse(long bookingId, int operatorId, String operatorName, String status,
-                                     BayResponse bay) {
+                                     BayResponse bay, String notes) {
 
         public static AssignmentResponse from(AssignmentView view) {
             return new AssignmentResponse(view.bookingId(), view.operatorId(), view.operatorName(),
-                    view.status().name(), BayResponse.from(view.bay()));
+                    view.status().name(), BayResponse.from(view.bay()), view.notes());
         }
     }
 

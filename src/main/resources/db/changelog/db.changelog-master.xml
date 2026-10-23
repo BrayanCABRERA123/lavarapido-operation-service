@@ -18,6 +18,7 @@
     <include file="db/changelog/033-execution-inspection-report.sql"/>
     <include file="db/changelog/037-execution-operator-profile.sql"/>
     <include file="db/changelog/040-execution-follow-up-notice.sql"/>
+    <include file="db/changelog/042-execution-assignment-notes.sql"/>
     <include file="db/changelog/seed/105-seed-execution-status.sql"/>
 
 </databaseChangeLog>
