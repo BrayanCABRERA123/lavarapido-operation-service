@@ -107,6 +107,23 @@ class OperationsApiWebTest {
     }
 
     @Test
+    void theOperatorServiceCarriesTheAdminNotes() throws Exception {
+        var booking = new com.lavarapido.operations.domain.model.BookingSnapshot(50L, "RES-000050", "CONFIRMED",
+                java.time.LocalDate.of(2026, 10, 5), java.time.LocalTime.of(9, 0), java.time.LocalTime.of(10, 0),
+                Instant.parse("2026-10-05T14:00:00Z"), Instant.parse("2026-10-05T15:00:00Z"), 7L, "Mazda 3", "ABC-123",
+                java.math.BigDecimal.TEN, List.of(), null);
+        given(operations.myServices(any(), any(), anyLong())).willReturn(List.of(new OperationsUseCase.OperatorServiceView(
+                booking, com.lavarapido.operations.domain.model.ExecutionStatus.PENDING, null, null, null, null,
+                Instant.parse("2026-10-05T13:45:00Z"), "Carla", Instant.parse("2026-10-05T19:00:00Z"), "Llevar cera extra")));
+
+        // B-01: el operario recibe las notas en el campo notes; A-12: y hasta cuándo puede iniciar
+        mvc.perform(get("/api/v1/operator/services").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].notes").value("Llevar cera extra"))
+                .andExpect(jsonPath("$[0].startableUntil").value("2026-10-05T19:00:00Z"));
+    }
+
+    @Test
     void inspectionIsForTheAdminAndTheLinkIsPublic() throws Exception {
         given(inspections.forBooking(anyLong())).willReturn(new InspectionView(true, true, null));
         given(inspections.published("no-existe")).willThrow(new NotFoundException("INSPECTION_NOT_FOUND", "none"));

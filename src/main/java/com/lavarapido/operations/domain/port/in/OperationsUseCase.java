@@ -49,9 +49,10 @@ public interface OperationsUseCase {
     /** startableAt: desde cuándo se puede iniciar (StartPolicy, 15 minutos antes de la reserva). */
     /** clientName: primer nombre del cliente, como en las calificaciones (vacío si no se pudo leer). */
     /** startableUntil: hasta cuándo se puede iniciar (A-12, la hora de fin más app.start.late-limit). */
+    /** notes: las indicaciones del administrador al asignar (B-01); null si no dejó ninguna. */
     record OperatorServiceView(BookingSnapshot booking, ExecutionStatus status, Instant startedAt,
                                Instant finishedAt, Short rating, String comment, Instant startableAt,
-                               String clientName, Instant startableUntil) {
+                               String clientName, Instant startableUntil, String notes) {
     }
 
     /** Calificacion de una reserva (todas sus lineas tienen la misma). */

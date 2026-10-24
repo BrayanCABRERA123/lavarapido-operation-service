@@ -673,7 +673,7 @@ public class OperationsService implements OperationsUseCase {
         ServiceExecution first = lines.getFirst();
         return new OperatorServiceView(booking, statusOf(lines), first.startedAt(), first.finishedAt(), first.rating(),
                 first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking), clientName,
-                StartPolicy.startableUntil(booking, startLateLimit));
+                StartPolicy.startableUntil(booking, startLateLimit), first.assignmentNotes());
     }
 
     private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName,
