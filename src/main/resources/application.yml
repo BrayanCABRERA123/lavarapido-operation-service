@@ -50,6 +50,19 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # OPS-04: el broker confirma cada evento publicado; los rechazados o sin cola quedan en el log
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # OPS-04: si la asignación automática falla porque booking, security o la base no responden,
+        # se reintenta 3 veces con espera creciente y luego va a la DLQ (operations-service.booking-confirmed.dlq)
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2s
+          multiplier: 2
 
 server:
   port: ${OPERATIONS_PORT:3004}
