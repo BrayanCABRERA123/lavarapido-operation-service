@@ -23,11 +23,17 @@ public interface UserDirectory {
     }
 
     /**
-     * Contacto de la cuenta sin usuario detrás (asignación automática, RF-008/010): una cuenta
-     * desactivada en security no recibe servicios aunque su fila de operario siga activa.
-     * Vacío si no se pudo leer.
+     * Contacto de la cuenta sin usuario detrás, para mostrar (primer nombre, operarios libres que ve el
+     * cliente, RF-010). Vacío si no se pudo leer. Para decidir si se asigna se usa accountActive.
      */
     Optional<ContactSnapshot> contactOf(long userId);
+
+    /**
+     * Si la cuenta puede recibir servicios (asignación manual y automática, A-13): true si está activa,
+     * false si está desactivada o no existe. Sin respuesta de security (o sin llave interna) lanza
+     * DependencyUnavailableException (503 SECURITY_SERVICE_UNAVAILABLE): no se asigna a ciegas.
+     */
+    boolean accountActive(long userId);
 
     /**
      * true solo cuando security-service confirma que la cuenta no existe (404). Sin llave interna o

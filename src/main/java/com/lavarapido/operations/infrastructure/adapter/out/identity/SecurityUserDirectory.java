@@ -1,5 +1,6 @@
 package com.lavarapido.operations.infrastructure.adapter.out.identity;
 
+import com.lavarapido.operations.domain.exception.DependencyUnavailableException;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.infrastructure.adapter.out.RestSupport;
 import org.slf4j.Logger;
@@ -64,6 +65,31 @@ class SecurityUserDirectory implements UserDirectory {
     }
 
     record ContactJson(String firstName, boolean active) {
+    }
+
+    @Override
+    public boolean accountActive(long userId) {
+        if (internalKey.isEmpty()) {
+            throw unavailable("INTERNAL_API_KEY is not set: the operator account cannot be checked");
+        }
+        try {
+            ContactJson contact = internal.get()
+                    .uri("/internal/v1/users/{id}/contact", userId)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(ContactJson.class);
+            return contact != null && contact.active();
+        } catch (HttpClientErrorException.NotFound e) {
+            // la cuenta ya no existe: tampoco recibe servicios
+            return false;
+        } catch (RestClientException e) {
+            log.warn("Could not check the account of user {} in security-service: {}", userId, e.getMessage());
+            throw unavailable("security-service is not available");
+        }
+    }
+
+    private static DependencyUnavailableException unavailable(String message) {
+        return new DependencyUnavailableException("SECURITY_SERVICE_UNAVAILABLE", message);
     }
 
     @Override

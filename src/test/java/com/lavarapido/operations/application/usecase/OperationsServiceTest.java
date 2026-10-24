@@ -71,6 +71,8 @@ class OperationsServiceTest {
         given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
         given(operators.findById(3)).willReturn(Optional.of(operator));
         given(operators.findByUserId(OPERATOR_USER)).willReturn(Optional.of(operator));
+        // A-13: las cuentas están activas salvo que la prueba diga otra cosa
+        given(users.accountActive(anyLong())).willReturn(true);
         given(users.operators()).willReturn(List.of(
                 new UserDirectory.UserSnapshot(OPERATOR_USER, "Oscar Operario", "op@gmail.com", "300", true)));
     }
@@ -160,11 +162,26 @@ class OperationsServiceTest {
     @DisplayName("A-13: la asignación manual rechaza un operario con la cuenta desactivada en security")
     void manualAssignmentChecksTheAccount() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
-        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
+        given(users.accountActive(OPERATOR_USER)).willReturn(false);
 
         ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
 
         assertEquals("OPERATOR_ACCOUNT_DISABLED", error.code());
+        verify(executions, never()).saveAll(any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("A-13: si security no responde, la asignación manual falla con 503 en vez de asignar a ciegas")
+    void manualAssignmentFailsClosedWhenSecurityIsDown() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(users.accountActive(OPERATOR_USER)).willThrow(new com.lavarapido.operations.domain.exception
+                .DependencyUnavailableException("SECURITY_SERVICE_UNAVAILABLE", "down"));
+
+        var error = assertThrows(com.lavarapido.operations.domain.exception.DependencyUnavailableException.class,
+                () -> service.assign(50L, 3, ADMIN, null));
+
+        assertEquals("SECURITY_SERVICE_UNAVAILABLE", error.code());
+        verify(executions, never()).lockAssignments();
         verify(executions, never()).saveAll(any(), anyLong());
     }
 
@@ -466,10 +483,10 @@ class OperationsServiceTest {
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(bookings, users, executions);
         order.verify(bookings).forService(any(LocalDate.class), any(LocalDate.class));
-        order.verify(users, org.mockito.Mockito.atLeastOnce()).contactOf(anyLong());
+        order.verify(users, org.mockito.Mockito.atLeastOnce()).accountActive(anyLong());
         order.verify(executions).lockAssignments();
         // con el candado ya no se llama a ningún servicio
-        order.verify(users, never()).contactOf(anyLong());
+        order.verify(users, never()).accountActive(anyLong());
         order.verify(bookings, never()).forService(any(LocalDate.class), any(LocalDate.class));
     }
 
@@ -528,8 +545,8 @@ class OperationsServiceTest {
     @DisplayName("una cuenta desactivada en security no recibe servicios aunque su fila de operario siga activa")
     void disabledAccountsAreNotAssigned() {
         twoOperatorsOnShiftMonday();
-        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
-        given(users.contactOf(40L)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Ana", true)));
+        given(users.accountActive(OPERATOR_USER)).willReturn(false);
+        given(users.accountActive(40L)).willReturn(true);
 
         assertEquals(4, service.autoAssign(50L, CLIENT, 3).orElseThrow().operatorId());
     }
