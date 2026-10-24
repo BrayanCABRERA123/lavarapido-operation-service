@@ -32,6 +32,13 @@ public interface ExecutionRepository {
     List<ServiceExecution> saveAll(List<ServiceExecution> executions, long actor);
 
     /**
+     * E-12: quita la asignación de una reserva que nadie puede atender a su hora nueva. Solo
+     * ejecuciones PENDING (sin historia); se borran de verdad porque booking_service_id es único y la
+     * reserva se debe poder asignar otra vez.
+     */
+    void deletePending(List<ServiceExecution> executions);
+
+    /**
      * Escribe en la base lo guardado en esta transacción (sin confirmarla). Se usa antes de llamar a
      * booking-service: si la base rechaza el cambio, la reserva no se mueve (OPS-01).
      */

@@ -112,6 +112,14 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
         executions.flush();
     }
 
+    @Override
+    public void deletePending(List<ServiceExecution> list) {
+        if (list.stream().anyMatch(execution -> execution.status() != ExecutionStatus.PENDING || execution.id() == null)) {
+            throw new IllegalArgumentException("Only saved executions that have not started can be deleted");
+        }
+        executions.deleteAllById(list.stream().map(ServiceExecution::id).toList());
+    }
+
     private static ServiceExecution toDomain(ServiceExecutionJpaEntity e) {
         ServiceExecution execution = ServiceExecution.restore(e.getId(), e.getBookingServiceId(), e.getOperatorId(),
                 ExecutionStatus.ofId(e.getStatusId()), e.getStartedAt(), e.getFinishedAt(), e.getRating(),

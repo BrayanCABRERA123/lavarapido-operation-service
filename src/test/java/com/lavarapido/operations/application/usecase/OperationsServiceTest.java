@@ -527,6 +527,29 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("E-12: al reprogramar, si el operario ya no puede y nadie más está libre, queda sin operario y se avisa")
+    void rescheduleWithNobodyFreeUnassigns() {
+        twoOperatorsOnShiftMonday();
+        // a la hora nueva ninguno de los dos tiene turno
+        given(operators.availability(anyInt())).willReturn(List.of());
+        List<ServiceExecution> current = List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true));
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(current);
+
+        assertTrue(service.autoAssign(50L, CLIENT, null).isEmpty());
+
+        verify(executions).deletePending(current);
+        verify(executions, never()).saveAll(any(), anyLong());
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(ExecutionEvent.Type.OPERATOR_UNASSIGNED, event.getValue().type());
+        // el aviso va al operario que la tenía (cuenta 40)
+        assertEquals(40L, event.getValue().operatorUserId());
+        assertEquals(CLIENT, event.getValue().customerUserId());
+    }
+
+    @Test
     @DisplayName("el cliente ve solo los operarios libres en su horario, con el primer nombre")
     void availableOperatorsForTheClient() {
         twoOperatorsOnShiftMonday();
