@@ -79,10 +79,16 @@ public final class ServiceExecution {
         this.assignmentNotes = notes;
     }
 
-    /** Cambiar de operario (y las notas de la asignación) solo mientras no ha empezado. */
+    /**
+     * Cambiar de operario solo mientras no ha empezado. B-01: las notas se reemplazan solo si llegan
+     * notas nuevas; sin notas (o en blanco) se conservan las que ya tenía la asignación.
+     */
     public void reassign(int newOperatorId, String notes) {
+        String clean = cleanNotes(notes);
         reassign(newOperatorId);
-        assignmentNotes = cleanNotes(notes);
+        if (clean != null) {
+            assignmentNotes = clean;
+        }
     }
 
     private static String cleanNotes(String notes) {
