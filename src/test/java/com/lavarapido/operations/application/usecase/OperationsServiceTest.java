@@ -458,6 +458,41 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("OPS-11: la automática pide a booking y a security lo que necesita antes de tomar el candado")
+    void autoAssignCallsTheOtherServicesBeforeTheLock() {
+        twoOperatorsOnShiftMonday();
+
+        service.autoAssign(50L, CLIENT, null);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(bookings, users, executions);
+        order.verify(bookings).forService(any(LocalDate.class), any(LocalDate.class));
+        order.verify(users, org.mockito.Mockito.atLeastOnce()).contactOf(anyLong());
+        order.verify(executions).lockAssignments();
+        // con el candado ya no se llama a ningún servicio
+        order.verify(users, never()).contactOf(anyLong());
+        order.verify(bookings, never()).forService(any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @DisplayName("OPS-11: la manual pide las reservas del día y el nombre del operario antes de tomar el candado")
+    void manualAssignCallsTheOtherServicesBeforeTheLock() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(operators.availability(3)).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+
+        assertEquals("Oscar Operario", service.assign(50L, 3, ADMIN, null).operatorName());
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(bookings, users, executions);
+        order.verify(bookings).forAdmin(any(LocalDate.class), any(LocalDate.class));
+        order.verify(users).operators();
+        order.verify(executions).lockAssignments();
+        order.verify(users, never()).operators();
+    }
+
+    @Test
     @DisplayName("E-12: al reprogramar, si el operario ya no puede a la hora nueva, pasa a uno libre")
     void rescheduleRevalidatesTheOperator() {
         twoOperatorsOnShiftMonday();

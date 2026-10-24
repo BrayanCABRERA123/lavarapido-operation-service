@@ -200,9 +200,13 @@ public class OperationsService implements OperationsUseCase {
             throw new ConflictException("OPERATOR_ACCOUNT_DISABLED", "The operator account is disabled");
         }
 
-        // con las asignaciones bloqueadas, las reservas del operario se leen ya con la automatica hecha
-        executions.lockAssignments();
+        // OPS-11: lo que viene de otros servicios (las reservas del día y el nombre del operario) se pide
+        // antes del candado, para no retenerlo mientras booking o security responden
         List<BookingSnapshot> sameDay = otherBookingsSameDay(booking);
+        String operatorName = nameOf(operator);
+
+        // con las asignaciones bloqueadas, las ejecuciones del operario se leen ya con la automatica hecha
+        executions.lockAssignments();
         AssignmentPolicy.check(operator, operators.availability(operatorId),
                 operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking,
                 busyWith(sameDay, executionsOf(sameDay), operatorId));
@@ -228,7 +232,7 @@ public class OperationsService implements OperationsUseCase {
 
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 booking.ownerUserId(), operator.userId(), booking.scheduledStart(), clock.instant()));
-        return new AssignmentView(booking.id(), operatorId, nameOf(operator), ExecutionStatus.PENDING, booking.bay(),
+        return new AssignmentView(booking.id(), operatorId, operatorName, ExecutionStatus.PENDING, booking.bay(),
                 toSave.isEmpty() ? null : toSave.getFirst().assignmentNotes());
     }
 
@@ -242,30 +246,37 @@ public class OperationsService implements OperationsUseCase {
         if (!ASSIGNABLE.contains(booking.status()) || !booking.scheduledEnd().isAfter(clock.instant())) {
             return Optional.empty();
         }
+        // OPS-11: las reservas del día (booking) y las cuentas de los operarios (security) se piden antes
+        // del candado: si uno de esos servicios tarda, la asignación manual no espera hasta ASSIGNMENT_BUSY
+        List<BookingSnapshot> sameDay = bookings.forService(booking.date(), booking.date()).stream()
+                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
+                .toList();
+        List<Operator> team = operators.findAll();
+        Map<Integer, Boolean> activeAccounts = new HashMap<>();
+        team.forEach(operator -> activeAccounts.put(operator.id(), accountActive(operator)));
+
         // con las asignaciones bloqueadas: una asignacion manual al mismo tiempo se ve antes de elegir
         executions.lockAssignments();
         List<ServiceExecution> current = executions.lockByLineIds(booking.lineIds());
         if (current.stream().anyMatch(e -> e.status() != ExecutionStatus.PENDING)) {
             return Optional.empty();
         }
-        List<BookingSnapshot> sameDay = bookings.forService(booking.date(), booking.date()).stream()
-                .filter(other -> other.id() != booking.id() && assignableOrRunning(other))
-                .toList();
         List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
         // E-12: una reprogramación conserva al operario solo si todavía puede a la hora nueva (turno,
         // ausencias, cruces y cuenta activa); si no, pasa a uno libre. Sin nadie libre se queda como estaba.
         Integer previous = current.isEmpty() ? null : current.getFirst().operatorId();
-        if (previous != null && stillFits(previous, booking, busyWith(sameDay, sameDayExecutions, previous))) {
+        if (previous != null && stillFits(team, previous, booking, busyWith(sameDay, sameDayExecutions, previous),
+                activeAccounts)) {
             return Optional.empty();
         }
         List<AutoAssignmentPolicy.Candidate> free = new ArrayList<>();
-        for (Operator operator : operators.findAll()) {
+        for (Operator operator : team) {
             int id = operator.id();
             if (previous != null && id == previous) continue;
             List<BookingSnapshot> busy = busyWith(sameDay, sameDayExecutions, id);
             String reason = AssignmentPolicy.blockingReason(operator, operators.availability(id),
                     operators.absences(id, booking.scheduledStart(), booking.scheduledEnd()), booking, busy);
-            if (reason == null && accountActive(operator)) {
+            if (reason == null && activeAccounts.getOrDefault(id, false)) {
                 free.add(new AutoAssignmentPolicy.Candidate(id, busy.size()));
             }
         }
@@ -286,16 +297,20 @@ public class OperationsService implements OperationsUseCase {
         return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay(), null));
     }
 
-    /** E-12: el operario puede tomar la reserva en su hora (actual) y su cuenta sigue activa. */
-    private boolean stillFits(int operatorId, BookingSnapshot booking, List<BookingSnapshot> busy) {
-        Optional<Operator> found = operators.findById(operatorId);
+    /**
+     * E-12: el operario puede tomar la reserva en su hora (actual) y su cuenta sigue activa. team y
+     * activeAccounts se leyeron antes del candado (OPS-11).
+     */
+    private boolean stillFits(List<Operator> team, int operatorId, BookingSnapshot booking, List<BookingSnapshot> busy,
+                              Map<Integer, Boolean> activeAccounts) {
+        Optional<Operator> found = team.stream().filter(operator -> operator.id() == operatorId).findFirst();
         if (found.isEmpty()) {
             return false;
         }
         Operator operator = found.get();
         return AssignmentPolicy.blockingReason(operator, operators.availability(operatorId),
                 operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking, busy) == null
-                && accountActive(operator);
+                && activeAccounts.getOrDefault(operatorId, false);
     }
 
     /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
