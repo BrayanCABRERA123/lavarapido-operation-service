@@ -61,6 +61,8 @@ class FollowUpServiceTest {
         service = new FollowUpService(executions, bookings, operators, events, Clock.fixed(NOW, ZoneOffset.UTC),
                 ZoneId.of("America/Bogota"), 60, 28);
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
+        // OPS-03: la lectura bloqueada devuelve lo mismo que la normal, salvo que la prueba diga otra cosa
+        given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
         given(operators.findById(3)).willReturn(Optional.of(Operator.restore(3, OPERATOR_USER, LocalDate.of(2026, 1, 1), true)));
     }
 
@@ -95,6 +97,19 @@ class FollowUpServiceTest {
         assertEquals(61L, event.getValue().bookingId());
         assertEquals(OPERATOR_USER, event.getValue().operatorUserId());
         assertEquals(NOW, pending.followUpNoticeAt());
+    }
+
+    @Test
+    @DisplayName("OPS-03: si el operario la inició mientras la vuelta corría, no se pisa su inicio ni se avisa")
+    void aServiceStartedMeanwhileIsNotOverwritten() {
+        given(bookings.forService(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking(61L, "CONFIRMED", 610L)));
+        given(executions.findByLineIds(any())).willReturn(List.of(line(610L, ExecutionStatus.PENDING, null)));
+        // la lectura bloqueada ya ve la línea en curso
+        given(executions.lockByLineIds(List.of(610L))).willReturn(List.of(line(610L, ExecutionStatus.IN_PROGRESS, NOW)));
+
+        assertEquals(new FollowUpRun(0, 0), service.followUp());
+        verify(executions, never()).saveAll(any(), anyLong());
+        verify(events, never()).publish(any());
     }
 
     @Test

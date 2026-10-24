@@ -58,6 +58,13 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
     }
 
     @Override
+    public List<ServiceExecution> lockByLineIds(Collection<Long> bookingServiceIds) {
+        if (bookingServiceIds.isEmpty()) return List.of();
+        return executions.lockByBookingServiceIds(bookingServiceIds).stream()
+                .map(ExecutionPersistenceAdapter::toDomain).toList();
+    }
+
+    @Override
     public List<ServiceExecution> findByOperator(int operatorId) {
         return executions.findByOperatorIdAndDeletedAtIsNull(operatorId).stream()
                 .map(ExecutionPersistenceAdapter::toDomain).toList();

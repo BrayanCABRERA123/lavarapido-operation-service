@@ -67,6 +67,8 @@ class OperationsServiceTest {
         service = new OperationsService(operators, executions, bookings, users, events,
                 Clock.fixed(NOW, ZoneOffset.UTC), ZoneId.of("America/Bogota"));
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
+        // OPS-03: la lectura bloqueada devuelve lo mismo que la normal, salvo que la prueba diga otra cosa
+        given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
         given(operators.findById(3)).willReturn(Optional.of(operator));
         given(operators.findByUserId(OPERATOR_USER)).willReturn(Optional.of(operator));
         given(users.operators()).willReturn(List.of(
@@ -167,6 +169,29 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("OPS-03: si el operario la inició mientras el admin esperaba el candado, no se reasigna")
+    void assignRereadsTheLinesAfterTheLock() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(operators.availability(3)).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+        // ya con el candado, las líneas bloqueadas muestran el servicio en curso
+        given(executions.lockByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
+
+        assertEquals("BOOKING_NOT_ASSIGNABLE", error.code());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).lockByLineIds(List.of(500L, 501L));
+        verify(executions, never()).saveAll(any(), anyLong());
+        verify(events, never()).publish(any());
+    }
+
+    @Test
     @DisplayName("una reserva que ya empezo o termino no se asigna")
     void cannotAssignStartedBooking() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
@@ -184,6 +209,11 @@ class OperationsServiceTest {
         given(executions.findByOperator(3)).willReturn(List.of());
 
         assertEquals(ExecutionStatus.IN_PROGRESS, service.start(50L, OPERATOR_USER).status());
+        // OPS-03: primero se bloquea al operario y sus líneas, después se mira si está ocupado
+        org.mockito.InOrder locks = org.mockito.Mockito.inOrder(operators, executions);
+        locks.verify(operators).lock(3);
+        locks.verify(executions).lockByLineIds(List.of(500L, 501L));
+        locks.verify(executions).findByOperator(3);
         // OPS-01: la ejecución queda escrita en la base antes de mover la reserva
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions, bookings);
         order.verify(executions).saveAll(any(), eq(OPERATOR_USER));
@@ -289,6 +319,8 @@ class OperationsServiceTest {
 
         RatingView view = service.rate(50L, 5, "Excelente", CLIENT);
 
+        // OPS-03: se califica sobre las líneas bloqueadas (dos envíos seguidos no califican dos veces)
+        verify(executions).lockByLineIds(List.of(500L, 501L));
         assertEquals(5, view.rating());
         assertEquals("Excelente", view.comment());
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
