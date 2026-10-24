@@ -18,6 +18,12 @@ public interface OperatorRepository {
 
     Optional<Operator> findByUserId(long userId);
 
+    /**
+     * Bloquea la fila del operario hasta que termine la transacción (OPS-03): dos inicios del mismo
+     * operario al mismo tiempo se atienden uno detrás del otro, y el segundo ya ve el primero en curso.
+     */
+    void lock(int operatorId);
+
     Operator save(Operator operator, long actor);
 
     /**

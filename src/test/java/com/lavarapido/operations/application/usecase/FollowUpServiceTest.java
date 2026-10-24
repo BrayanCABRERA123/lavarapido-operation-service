@@ -61,6 +61,8 @@ class FollowUpServiceTest {
         service = new FollowUpService(executions, bookings, operators, events, Clock.fixed(NOW, ZoneOffset.UTC),
                 ZoneId.of("America/Bogota"), 60, 28);
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
+        // OPS-03: la lectura bloqueada devuelve lo mismo que la normal, salvo que la prueba diga otra cosa
+        given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
         given(operators.findById(3)).willReturn(Optional.of(Operator.restore(3, OPERATOR_USER, LocalDate.of(2026, 1, 1), true)));
     }
 
@@ -95,6 +97,19 @@ class FollowUpServiceTest {
         assertEquals(61L, event.getValue().bookingId());
         assertEquals(OPERATOR_USER, event.getValue().operatorUserId());
         assertEquals(NOW, pending.followUpNoticeAt());
+    }
+
+    @Test
+    @DisplayName("OPS-03: si el operario la inició mientras la vuelta corría, no se pisa su inicio ni se avisa")
+    void aServiceStartedMeanwhileIsNotOverwritten() {
+        given(bookings.forService(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking(61L, "CONFIRMED", 610L)));
+        given(executions.findByLineIds(any())).willReturn(List.of(line(610L, ExecutionStatus.PENDING, null)));
+        // la lectura bloqueada ya ve la línea en curso
+        given(executions.lockByLineIds(List.of(610L))).willReturn(List.of(line(610L, ExecutionStatus.IN_PROGRESS, NOW)));
+
+        assertEquals(new FollowUpRun(0, 0), service.followUp());
+        verify(executions, never()).saveAll(any(), anyLong());
+        verify(events, never()).publish(any());
     }
 
     @Test
@@ -164,12 +179,31 @@ class FollowUpServiceTest {
         assertEquals(ExecutionStatus.COMPLETED, pending.status());
         assertNull(pending.startedAt());
         assertNull(pending.finishedAt());
+        // OPS-01: las líneas quedan escritas antes de mover la reserva
         InOrder order = inOrder(bookings, executions);
+        order.verify(executions).saveAll(List.of(pending), ADMIN);
+        order.verify(executions).flush();
         order.verify(bookings).advance(61L, "IN_PROGRESS");
         order.verify(bookings).advance(61L, "COMPLETED");
-        order.verify(executions).saveAll(List.of(pending), ADMIN);
         // al cliente no se le avisa "ya puedes recogerlo" horas después
         verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("OPS-01: reserva COMPLETED con la línea en curso: sale en Por cerrar y se cierra sin mover la reserva")
+    void completedBookingWithAnUnfinishedLineCanBeClosed() {
+        ServiceExecution stuck = line(650L, ExecutionStatus.IN_PROGRESS, Instant.parse("2026-10-05T14:05:00Z"));
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking(65L, "COMPLETED", 650L)));
+        given(bookings.forAdmin(65L)).willReturn(Optional.of(booking(65L, "COMPLETED", 650L)));
+        given(executions.findByLineIds(any())).willReturn(List.of(stuck));
+
+        assertEquals(List.of(new ToCloseView(65L, Reason.NOT_FINISHED, 3)), service.toClose(null, null));
+        service.closeAsAttended(65L, ADMIN);
+
+        // la línea queda terminada (el operario ya no aparece ocupado) y booking no se toca
+        assertEquals(ExecutionStatus.COMPLETED, stuck.status());
+        verify(executions).saveAll(List.of(stuck), ADMIN);
+        verify(bookings, never()).advance(anyLong(), any());
     }
 
     @Test

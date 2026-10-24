@@ -65,10 +65,14 @@ class OperationsServiceTest {
     @BeforeEach
     void setUp() {
         service = new OperationsService(operators, executions, bookings, users, events,
-                Clock.fixed(NOW, ZoneOffset.UTC), ZoneId.of("America/Bogota"));
+                Clock.fixed(NOW, ZoneOffset.UTC), ZoneId.of("America/Bogota"), java.time.Duration.ofHours(4));
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
+        // OPS-03: la lectura bloqueada devuelve lo mismo que la normal, salvo que la prueba diga otra cosa
+        given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
         given(operators.findById(3)).willReturn(Optional.of(operator));
         given(operators.findByUserId(OPERATOR_USER)).willReturn(Optional.of(operator));
+        // A-13: las cuentas están activas salvo que la prueba diga otra cosa
+        given(users.accountActive(anyLong())).willReturn(true);
         given(users.operators()).willReturn(List.of(
                 new UserDirectory.UserSnapshot(OPERATOR_USER, "Oscar Operario", "op@gmail.com", "300", true)));
     }
@@ -107,7 +111,7 @@ class OperationsServiceTest {
                 List.of(new BookingSnapshot.Line(510L, "Premium")), null);
         given(bookings.forAdmin(51L)).willReturn(Optional.of(lastWeek));
 
-        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN));
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(51L, 3, ADMIN, null));
 
         assertEquals("BOOKING_IN_PAST", error.code());
         verify(events, never()).publish(any());
@@ -133,7 +137,7 @@ class OperationsServiceTest {
         given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
         given(executions.findByLineIds(any())).willReturn(List.of());
 
-        AssignmentView view = service.assign(50L, 3, ADMIN);
+        AssignmentView view = service.assign(50L, 3, ADMIN, "Llevar cera extra");
 
         assertEquals(3, view.operatorId());
         assertEquals("Oscar Operario", view.operatorName());
@@ -144,6 +148,9 @@ class OperationsServiceTest {
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
         verify(executions).saveAll(saved.capture(), eq(ADMIN));
         assertEquals(2, saved.getValue().size());
+        // B-01: las notas del administrador quedan en cada linea asignada
+        saved.getValue().forEach(execution -> assertEquals("Llevar cera extra", execution.assignmentNotes()));
+        assertEquals("Llevar cera extra", view.notes());
         ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
         verify(events).publish(event.capture());
         assertEquals(ExecutionEvent.Type.OPERATOR_ASSIGNED, event.getValue().type());
@@ -152,10 +159,60 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("A-13: la asignación manual rechaza un operario con la cuenta desactivada en security")
+    void manualAssignmentChecksTheAccount() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(users.accountActive(OPERATOR_USER)).willReturn(false);
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
+
+        assertEquals("OPERATOR_ACCOUNT_DISABLED", error.code());
+        verify(executions, never()).saveAll(any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("A-13: si security no responde, la asignación manual falla con 503 en vez de asignar a ciegas")
+    void manualAssignmentFailsClosedWhenSecurityIsDown() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(users.accountActive(OPERATOR_USER)).willThrow(new com.lavarapido.operations.domain.exception
+                .DependencyUnavailableException("SECURITY_SERVICE_UNAVAILABLE", "down"));
+
+        var error = assertThrows(com.lavarapido.operations.domain.exception.DependencyUnavailableException.class,
+                () -> service.assign(50L, 3, ADMIN, null));
+
+        assertEquals("SECURITY_SERVICE_UNAVAILABLE", error.code());
+        verify(executions, never()).lockAssignments();
+        verify(executions, never()).saveAll(any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("OPS-03: si el operario la inició mientras el admin esperaba el candado, no se reasigna")
+    void assignRereadsTheLinesAfterTheLock() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(operators.availability(3)).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+        // ya con el candado, las líneas bloqueadas muestran el servicio en curso
+        given(executions.lockByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+
+        ConflictException error = assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
+
+        assertEquals("BOOKING_NOT_ASSIGNABLE", error.code());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions);
+        order.verify(executions).lockAssignments();
+        order.verify(executions).lockByLineIds(List.of(500L, 501L));
+        verify(executions, never()).saveAll(any(), anyLong());
+        verify(events, never()).publish(any());
+    }
+
+    @Test
     @DisplayName("una reserva que ya empezo o termino no se asigna")
     void cannotAssignStartedBooking() {
         given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
-        assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN));
+        assertThrows(ConflictException.class, () -> service.assign(50L, 3, ADMIN, null));
         verify(events, never()).publish(any());
     }
 
@@ -168,15 +225,79 @@ class OperationsServiceTest {
                 ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
         given(executions.findByOperator(3)).willReturn(List.of());
 
-        assertEquals(ExecutionStatus.IN_PROGRESS, service.start(50L, OPERATOR_USER).status());
-        verify(bookings).advance(50L, "IN_PROGRESS");
+        OperationsUseCase.OperatorServiceView started = service.start(50L, OPERATOR_USER);
+        assertEquals(ExecutionStatus.IN_PROGRESS, started.status());
+        // A-12: la pantalla recibe hasta cuándo se puede iniciar (fin 15:00Z + 4 h)
+        assertEquals(Instant.parse("2026-10-05T19:00:00Z"), started.startableUntil());
+        // OPS-03: primero se bloquea al operario y sus líneas, después se mira si está ocupado
+        org.mockito.InOrder locks = org.mockito.Mockito.inOrder(operators, executions);
+        locks.verify(operators).lock(3);
+        locks.verify(executions).lockByLineIds(List.of(500L, 501L));
+        locks.verify(executions).findByOperator(3);
+        // OPS-01: la ejecución queda escrita en la base antes de mover la reserva
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions, bookings);
+        order.verify(executions).saveAll(any(), eq(OPERATOR_USER));
+        order.verify(executions).flush();
+        order.verify(bookings).advance(50L, "IN_PROGRESS");
+    }
+
+    @Test
+    @DisplayName("OPS-01: si booking falla al terminar, la operación falla entera y no se avisa nada")
+    void finishFailsWholeWhenBookingDoesNotAnswer() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+        org.mockito.BDDMockito.willThrow(new com.lavarapido.operations.domain.exception.DependencyUnavailableException(
+                "BOOKING_SERVICE_UNAVAILABLE", "down")).given(bookings).advance(50L, "COMPLETED");
+
+        assertThrows(com.lavarapido.operations.domain.exception.DependencyUnavailableException.class,
+                () -> service.finish(50L, OPERATOR_USER));
+
+        // la ejecución se escribió antes de llamar a booking: la excepción deshace la transacción completa
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions, bookings);
+        order.verify(executions).saveAll(any(), eq(OPERATOR_USER));
+        order.verify(executions).flush();
+        order.verify(bookings).advance(50L, "COMPLETED");
+        verify(events, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("F-05: al terminar, las lineas quedan COMPLETED, la reserva avanza y el cliente se entera")
+    void operatorFinishes() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+
+        assertEquals(ExecutionStatus.COMPLETED, service.finish(50L, OPERATOR_USER).status());
+
+        verify(bookings).advance(50L, "COMPLETED");
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(ExecutionEvent.Type.SERVICE_COMPLETED, event.getValue().type());
+    }
+
+    @Test
+    @DisplayName("F-05: no se termina un servicio sin empezar ni uno de otro operario")
+    void cannotFinishWhatIsNotStartedOrNotMine() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        assertEquals("EXECUTION_NOT_STARTED",
+                assertThrows(ConflictException.class, () -> service.finish(50L, OPERATOR_USER)).code());
+
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 9, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+        assertThrows(NotFoundException.class, () -> service.finish(50L, OPERATOR_USER));
+        verify(bookings, never()).advance(anyLong(), any());
     }
 
     @Test
     @DisplayName("el operario ve el primer nombre del cliente en sus servicios, no la placa")
     void servicesShowTheClientsFirstName() {
-        given(executions.findByOperator(3)).willReturn(List.of(
-                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        ServiceExecution line = ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true);
+        line.restoreAssignmentNotes("Llevar cera extra");
+        given(executions.findByOperator(3)).willReturn(List.of(line));
         given(bookings.forOperator(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
         given(users.firstNameOf(CLIENT)).willReturn("Carla");
 
@@ -184,6 +305,8 @@ class OperationsServiceTest {
 
         assertEquals("Carla", mine.getFirst().clientName());
         assertEquals("ABC-123", mine.getFirst().booking().plate());
+        // B-01: el operario ve las indicaciones que dejó el administrador al asignar
+        assertEquals("Llevar cera extra", mine.getFirst().notes());
     }
 
     @Test
@@ -219,6 +342,8 @@ class OperationsServiceTest {
 
         RatingView view = service.rate(50L, 5, "Excelente", CLIENT);
 
+        // OPS-03: se califica sobre las líneas bloqueadas (dos envíos seguidos no califican dos veces)
+        verify(executions).lockByLineIds(List.of(500L, 501L));
         assertEquals(5, view.rating());
         assertEquals("Excelente", view.comment());
         ArgumentCaptor<List<ServiceExecution>> saved = ArgumentCaptor.captor();
@@ -356,6 +481,81 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("OPS-11: la automática pide a booking y a security lo que necesita antes de tomar el candado")
+    void autoAssignCallsTheOtherServicesBeforeTheLock() {
+        twoOperatorsOnShiftMonday();
+
+        service.autoAssign(50L, CLIENT, null);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(bookings, users, executions);
+        order.verify(bookings).forService(any(LocalDate.class), any(LocalDate.class));
+        order.verify(users, org.mockito.Mockito.atLeastOnce()).accountActive(anyLong());
+        order.verify(executions).lockAssignments();
+        // con el candado ya no se llama a ningún servicio
+        order.verify(users, never()).accountActive(anyLong());
+        order.verify(bookings, never()).forService(any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @DisplayName("OPS-11: la manual pide las reservas del día y el nombre del operario antes de tomar el candado")
+    void manualAssignCallsTheOtherServicesBeforeTheLock() {
+        given(bookings.forAdmin(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(bookings.forAdmin(any(LocalDate.class), any(LocalDate.class))).willReturn(List.of(booking("CONFIRMED")));
+        given(operators.availability(3)).willReturn(
+                List.of(new WeeklyAvailability((short) 1, LocalTime.of(8, 0), LocalTime.of(17, 0))));
+        given(operators.absences(anyInt(), any(), any())).willReturn(List.of());
+        given(executions.findByLineIds(any())).willReturn(List.of());
+
+        assertEquals("Oscar Operario", service.assign(50L, 3, ADMIN, null).operatorName());
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(bookings, users, executions);
+        order.verify(bookings).forAdmin(any(LocalDate.class), any(LocalDate.class));
+        order.verify(users).operators();
+        order.verify(executions).lockAssignments();
+        order.verify(users, never()).operators();
+    }
+
+    @Test
+    @DisplayName("E-12: al reprogramar, si el operario ya no puede a la hora nueva, pasa a uno libre")
+    void rescheduleRevalidatesTheOperator() {
+        twoOperatorsOnShiftMonday();
+        // el operario 4 tenía la reserva, pero a la hora nueva no tiene turno
+        given(operators.availability(4)).willReturn(List.of());
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+
+        Optional<AssignmentView> assigned = service.autoAssign(50L, CLIENT, null);
+
+        assertEquals(3, assigned.orElseThrow().operatorId());
+        verify(executions).saveAll(org.mockito.ArgumentMatchers.argThat(list -> list.size() == 2
+                && list.stream().allMatch(e -> e.operatorId() == 3)), anyLong());
+    }
+
+    @Test
+    @DisplayName("E-12: al reprogramar, si el operario ya no puede y nadie más está libre, queda sin operario y se avisa")
+    void rescheduleWithNobodyFreeUnassigns() {
+        twoOperatorsOnShiftMonday();
+        // a la hora nueva ninguno de los dos tiene turno
+        given(operators.availability(anyInt())).willReturn(List.of());
+        List<ServiceExecution> current = List.of(
+                ServiceExecution.restore(1L, 500L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 4, ExecutionStatus.PENDING, null, null, null, null, null, true));
+        given(executions.findByLineIds(List.of(500L, 501L))).willReturn(current);
+
+        assertTrue(service.autoAssign(50L, CLIENT, null).isEmpty());
+
+        verify(executions).deletePending(current);
+        verify(executions, never()).saveAll(any(), anyLong());
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(ExecutionEvent.Type.OPERATOR_UNASSIGNED, event.getValue().type());
+        // el aviso va al operario que la tenía (cuenta 40)
+        assertEquals(40L, event.getValue().operatorUserId());
+        assertEquals(CLIENT, event.getValue().customerUserId());
+    }
+
+    @Test
     @DisplayName("el cliente ve solo los operarios libres en su horario, con el primer nombre")
     void availableOperatorsForTheClient() {
         twoOperatorsOnShiftMonday();
@@ -374,8 +574,8 @@ class OperationsServiceTest {
     @DisplayName("una cuenta desactivada en security no recibe servicios aunque su fila de operario siga activa")
     void disabledAccountsAreNotAssigned() {
         twoOperatorsOnShiftMonday();
-        given(users.contactOf(OPERATOR_USER)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Oscar", false)));
-        given(users.contactOf(40L)).willReturn(Optional.of(new UserDirectory.ContactSnapshot("Ana", true)));
+        given(users.accountActive(OPERATOR_USER)).willReturn(false);
+        given(users.accountActive(40L)).willReturn(true);
 
         assertEquals(4, service.autoAssign(50L, CLIENT, 3).orElseThrow().operatorId());
     }

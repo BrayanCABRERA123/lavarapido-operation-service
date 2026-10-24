@@ -94,19 +94,25 @@ public class FollowUpService implements FollowUpUseCase {
     public void closeAsAttended(long bookingId, long adminId) {
         BookingSnapshot booking = bookings.forAdmin(bookingId)
                 .orElseThrow(() -> new NotFoundException("BOOKING_NOT_FOUND", "Booking " + bookingId + " does not exist"));
-        List<ServiceExecution> lines = executions.findByLineIds(booking.lineIds());
+        // OPS-03: bloqueadas, así un "Finalizar" del operario al mismo tiempo no se pisa con el cierre
+        List<ServiceExecution> lines = executions.lockByLineIds(booking.lineIds());
         Optional<Reason> reason = FollowUpPolicy.of(booking, lines, clock.instant(), grace);
         if (reason.isEmpty() || reason.get() == Reason.NO_OPERATOR) {
             throw new ConflictException("BOOKING_NOT_TO_CLOSE", "Only a finished booking with an operator can be closed");
         }
         List<ServiceExecution> open = lines.stream().filter(line -> line.status() != ExecutionStatus.COMPLETED).toList();
         open.forEach(ServiceExecution::closeAsAttended);
-        // booking solo avanza paso a paso: CONFIRMED -> IN_PROGRESS -> COMPLETED
-        if (reason.get() == Reason.NOT_STARTED) {
-            bookings.advance(booking.id(), "IN_PROGRESS");
-        }
-        bookings.advance(booking.id(), "COMPLETED");
+        // OPS-01: las líneas se escriben antes de mover la reserva (si booking falla, se deshace todo)
         executions.saveAll(open, adminId);
+        executions.flush();
+        // una reserva que booking ya tiene COMPLETED solo necesita cerrar sus líneas
+        if (!"COMPLETED".equals(booking.status())) {
+            // booking solo avanza paso a paso: CONFIRMED -> IN_PROGRESS -> COMPLETED
+            if (reason.get() == Reason.NOT_STARTED) {
+                bookings.advance(booking.id(), "IN_PROGRESS");
+            }
+            bookings.advance(booking.id(), "COMPLETED");
+        }
         // sin ServiceCompleted: al cliente le diría "ya puedes recogerlo" horas después
     }
 
@@ -133,8 +139,7 @@ public class FollowUpService implements FollowUpUseCase {
                     log.warn("Booking {} was not closed as not attended: {} {}", booking.id(), notClosed.code(),
                             notClosed.getMessage());
                 }
-            } else if (lines.stream().allMatch(line -> line.followUpNoticeAt() == null)) {
-                notice(booking, lines, reason.get(), now);
+            } else if (lines.stream().allMatch(line -> line.followUpNoticeAt() == null) && notice(booking, lines, now)) {
                 notices++;
             }
         }
@@ -142,7 +147,16 @@ public class FollowUpService implements FollowUpUseCase {
     }
 
     // un solo aviso por reserva: al operario y a los administradores (notification-service)
-    private void notice(BookingSnapshot booking, List<ServiceExecution> lines, Reason reason, Instant now) {
+    private boolean notice(BookingSnapshot booking, List<ServiceExecution> listed, Instant now) {
+        // OPS-03: se vuelven a leer bloqueadas antes de guardar la marca del aviso; si el operario la
+        // inició o terminó mientras tanto, su cambio no se pisa y ya no se avisa
+        List<ServiceExecution> lines = executions.lockByLineIds(listed.stream().map(ServiceExecution::bookingServiceId).toList());
+        Optional<Reason> current = FollowUpPolicy.of(booking, lines, now, grace);
+        if (current.isEmpty() || current.get() == Reason.NO_OPERATOR
+                || lines.stream().anyMatch(line -> line.followUpNoticeAt() != null)) {
+            return false;
+        }
+        Reason reason = current.get();
         Long operatorUserId = operators.findById(lines.getFirst().operatorId()).map(Operator::userId).orElse(null);
         ExecutionEvent.Type type = reason == Reason.NOT_STARTED
                 ? ExecutionEvent.Type.SERVICE_NOT_STARTED : ExecutionEvent.Type.SERVICE_NOT_FINISHED;
@@ -150,6 +164,7 @@ public class FollowUpService implements FollowUpUseCase {
         executions.saveAll(lines, SYSTEM_ACTOR);
         events.publish(new ExecutionEvent(type, booking.id(), booking.code(), booking.ownerUserId(), operatorUserId,
                 booking.scheduledStart(), now));
+        return true;
     }
 
     private Map<Long, ServiceExecution> byLine(List<BookingSnapshot> list) {

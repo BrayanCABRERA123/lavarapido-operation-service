@@ -32,7 +32,11 @@ public interface BookingDirectory {
 
     List<BookingSnapshot> forService(LocalDate from, LocalDate to);
 
-    /** El operario mueve la reserva: IN_PROGRESS al empezar, COMPLETED al terminar. */
+    /**
+     * El operario mueve la reserva: IN_PROGRESS al empezar, COMPLETED al terminar. Si booking responde
+     * 409 pero la reserva ya está en ese estado (un intento anterior que booking guardó y cuya respuesta
+     * no llegó), el paso se da por hecho; en cualquier otro estado, 409 BOOKING_STATE_CONFLICT.
+     */
     void advance(long bookingId, String status);
 
     /**
