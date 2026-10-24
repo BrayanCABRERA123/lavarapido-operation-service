@@ -62,6 +62,11 @@ class OperatorPersistenceAdapter implements OperatorRepository {
     }
 
     @Override
+    public void lock(int operatorId) {
+        operators.lockById(operatorId);
+    }
+
+    @Override
     public Operator save(Operator operator, long actor) {
         OperatorJpaEntity entity = operator.id() == null ? new OperatorJpaEntity()
                 : operators.findById(operator.id()).orElseThrow();

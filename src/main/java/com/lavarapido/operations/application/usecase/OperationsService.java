@@ -207,8 +207,13 @@ public class OperationsService implements OperationsUseCase {
                 operators.absences(operatorId, booking.scheduledStart(), booking.scheduledEnd()), booking,
                 busyWith(sameDay, executionsOf(sameDay), operatorId));
 
-        Map<Long, ServiceExecution> existing = executions.findByLineIds(booking.lineIds()).stream()
+        // OPS-03: el estado se vuelve a leer ya con el candado y con las líneas bloqueadas: si el operario
+        // la inició mientras tanto, ya no se reasigna (y su inicio no se pierde)
+        Map<Long, ServiceExecution> existing = executions.lockByLineIds(booking.lineIds()).stream()
                 .collect(Collectors.toMap(ServiceExecution::bookingServiceId, Function.identity()));
+        if (existing.values().stream().anyMatch(execution -> execution.status() != ExecutionStatus.PENDING)) {
+            throw new ConflictException("BOOKING_NOT_ASSIGNABLE", "Only a booking that has not started can be assigned");
+        }
         List<ServiceExecution> toSave = new ArrayList<>();
         for (long lineId : booking.lineIds()) {
             ServiceExecution execution = existing.get(lineId);
@@ -239,7 +244,7 @@ public class OperationsService implements OperationsUseCase {
         }
         // con las asignaciones bloqueadas: una asignacion manual al mismo tiempo se ve antes de elegir
         executions.lockAssignments();
-        List<ServiceExecution> current = executions.findByLineIds(booking.lineIds());
+        List<ServiceExecution> current = executions.lockByLineIds(booking.lineIds());
         if (current.stream().anyMatch(e -> e.status() != ExecutionStatus.PENDING)) {
             return Optional.empty();
         }
@@ -454,11 +459,14 @@ public class OperationsService implements OperationsUseCase {
     public OperatorServiceView start(long bookingId, long operatorUserId) {
         Operator operator = operatorOf(operatorUserId);
         BookingSnapshot booking = requireOperatorBooking(bookingId);
+        // OPS-03: con la fila del operario bloqueada, dos inicios suyos al mismo tiempo van uno detrás del
+        // otro y el segundo ya ve el primero en curso
+        operators.lock(operator.id());
         List<ServiceExecution> lines = myLines(booking, operator);
         Instant now = clock.instant();
         // no se inicia una reserva de otro día u otra hora: solo desde 15 minutos antes
         StartPolicy.check(booking, now);
-        // no puede llevar dos lavados a la vez (tr_service_execution_overlap del modelo)
+        // no puede llevar dos lavados a la vez (lo garantiza el bloqueo de arriba)
         boolean busy = executions.findByOperator(operator.id()).stream()
                 .anyMatch(e -> e.status() == ExecutionStatus.IN_PROGRESS && !booking.lineIds().contains(e.bookingServiceId()));
         if (busy) {
@@ -519,7 +527,8 @@ public class OperationsService implements OperationsUseCase {
         if (!"COMPLETED".equals(booking.status())) {
             throw new ConflictException("SERVICE_NOT_COMPLETED", "Only a completed service can be rated");
         }
-        List<ServiceExecution> lines = executions.findByLineIds(booking.lineIds());
+        // OPS-03: bloqueadas, así dos envíos de la misma calificación no la guardan dos veces
+        List<ServiceExecution> lines = executions.lockByLineIds(booking.lineIds());
         if (lines.isEmpty()) {
             throw new ConflictException("SERVICE_NOT_COMPLETED", "This booking has no service to rate");
         }
@@ -597,9 +606,12 @@ public class OperationsService implements OperationsUseCase {
                 .orElseThrow(() -> new NotFoundException("BOOKING_NOT_FOUND", "Booking not found"));
     }
 
-    /** Lineas de la reserva asignadas a este operario; si no tiene ninguna, no es suya (404). */
+    /**
+     * Lineas de la reserva asignadas a este operario; si no tiene ninguna, no es suya (404). Se leen
+     * bloqueadas (OPS-03): un cambio del admin a la misma reserva espera a que esto termine.
+     */
     private List<ServiceExecution> myLines(BookingSnapshot booking, Operator operator) {
-        List<ServiceExecution> lines = executions.findByLineIds(booking.lineIds()).stream()
+        List<ServiceExecution> lines = executions.lockByLineIds(booking.lineIds()).stream()
                 .filter(e -> e.operatorId() == operator.id())
                 .toList();
         if (lines.isEmpty()) {
