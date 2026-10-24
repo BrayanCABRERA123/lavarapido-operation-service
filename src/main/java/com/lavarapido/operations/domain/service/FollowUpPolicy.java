@@ -19,6 +19,8 @@ import java.util.Optional;
  *   atenderse sin registrarse: la resuelve el administrador ("Por cerrar").</li>
  *   <li>NOT_FINISHED: se inició, pasó la hora de fin más el margen y nadie le dio "Finalizar".
  *   También la resuelve el administrador.</li>
+ *   <li>Una reserva COMPLETED cuyas líneas no terminaron (pasada la hora de fin) también queda por
+ *   cerrar: NOT_STARTED si ninguna empezó y NOT_FINISHED si alguna quedó en curso (OPS-01).</li>
  * </ul>
  */
 public final class FollowUpPolicy {
@@ -47,6 +49,16 @@ public final class FollowUpPolicy {
             case "IN_PROGRESS" -> {
                 boolean unfinished = lines.stream().anyMatch(line -> line.status() != ExecutionStatus.COMPLETED);
                 yield !lines.isEmpty() && unfinished && pastGrace ? Optional.of(Reason.NOT_FINISHED) : Optional.empty();
+            }
+            // OPS-01: la reserva quedó terminada pero sus líneas no (booking guardó y la respuesta no
+            // llegó, o el admin la cerró desde booking). Sin esto el operario sigue "ocupado" para siempre
+            case "COMPLETED" -> {
+                if (lines.isEmpty() || lines.stream().allMatch(line -> line.status() == ExecutionStatus.COMPLETED)
+                        || now.isBefore(end)) {
+                    yield Optional.empty();
+                }
+                boolean noneStarted = lines.stream().allMatch(line -> line.status() == ExecutionStatus.PENDING);
+                yield Optional.of(noneStarted ? Reason.NOT_STARTED : Reason.NOT_FINISHED);
             }
             default -> Optional.empty();
         };
