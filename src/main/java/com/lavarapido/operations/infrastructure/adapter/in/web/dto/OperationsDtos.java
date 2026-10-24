@@ -161,13 +161,14 @@ public final class OperationsDtos {
                                           LocalTime startTime, LocalTime endTime, String services, String vehicle,
                                           String plate, BigDecimal total, String status, Instant startedAt,
                                           Instant finishedAt, Short rating, String comment, Instant startableAt,
-                                          String clientName) {
+                                          String clientName, Instant startableUntil) {
 
         public static OperatorServiceResponse from(OperatorServiceView view) {
             BookingSnapshot b = view.booking();
             return new OperatorServiceResponse(b.id(), b.code(), b.status(), b.date(), b.startTime(), b.endTime(),
                     b.servicesLabel(), b.vehicle(), b.plate(), b.total(), view.status().name(), view.startedAt(),
-                    view.finishedAt(), view.rating(), view.comment(), view.startableAt(), view.clientName());
+                    view.finishedAt(), view.rating(), view.comment(), view.startableAt(), view.clientName(),
+                    view.startableUntil());
         }
     }
 
