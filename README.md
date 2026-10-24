@@ -2,7 +2,7 @@
 
 Operación del lavadero: operarios, disponibilidad y ausencias, asignación de reservas,
 ejecución del servicio, calificaciones e informe de inspección del vehículo con fotos.
-Es dueño del esquema `execution` (ADR-009). Puerto **3004**. Pruebas: `./mvnw test`, 68 al 23-10-2026, sin base de datos.
+Es dueño del esquema `execution` (ADR-009). Puerto **3004**. Pruebas: `./mvnw test`, 79 al 24-10-2026, sin base de datos.
 
 Stack: Spring Boot 4 · Java 21 · SQL Server (Liquibase) · RabbitMQ opcional.
 
