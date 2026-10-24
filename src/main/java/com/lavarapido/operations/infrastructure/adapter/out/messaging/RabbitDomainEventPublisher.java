@@ -10,6 +10,8 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.core.ReturnedMessage;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,10 @@ import java.util.UUID;
  *
  * Se publica DESPUES del commit: si la asignacion no se guarda, nadie recibe el aviso. Si RabbitMQ
  * esta caido, la operacion no falla; queda el error en el log (el Outbox no esta adoptado, ADR-004).
+ *
+ * OPS-04: con publisher confirms (spring.rabbitmq.publisher-confirm-type: correlated) y mandatory, un
+ * mensaje que el broker rechaza o que no llega a ninguna cola también queda en el log con su eventId,
+ * en vez de perderse en silencio.
  */
 @Component
 @ConditionalOnProperty(prefix = "app.messaging", name = "enabled", havingValue = "true")
@@ -41,6 +47,21 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
 
     RabbitDomainEventPublisher(RabbitTemplate rabbit) {
         this.rabbit = rabbit;
+        // OPS-04: el broker confirma cada mensaje; los que rechaza o no puede enrutar quedan en el log
+        rabbit.setMandatory(true);
+        rabbit.setConfirmCallback(RabbitDomainEventPublisher::onConfirm);
+        rabbit.setReturnsCallback(RabbitDomainEventPublisher::onReturned);
+    }
+
+    static void onConfirm(CorrelationData correlation, boolean ack, String cause) {
+        if (!ack) {
+            log.error("RabbitMQ rejected event {}: {}", correlation == null ? "?" : correlation.getId(), cause);
+        }
+    }
+
+    static void onReturned(ReturnedMessage returned) {
+        log.error("Event {} ({}) reached no queue: {} {}", returned.getMessage().getMessageProperties().getMessageId(),
+                returned.getRoutingKey(), returned.getReplyCode(), returned.getReplyText());
     }
 
     @Override
@@ -84,7 +105,8 @@ class RabbitDomainEventPublisher implements DomainEventPublisher {
                     .setMessageId(eventId)
                     .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                     .build();
-            rabbit.send(EXCHANGE, routingKey, message);
+            // la confirmación del broker trae este id (onConfirm)
+            rabbit.send(EXCHANGE, routingKey, message, new CorrelationData(eventId));
             log.info("Published {} ({}) for booking {}", eventName, eventId, bookingId);
         } catch (AmqpException e) {
             log.error("Could not publish {} ({}) to RabbitMQ: {}", eventName, eventId, e.getMessage());
