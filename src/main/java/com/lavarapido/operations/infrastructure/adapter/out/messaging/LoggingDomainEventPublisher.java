@@ -2,6 +2,7 @@ package com.lavarapido.operations.infrastructure.adapter.out.messaging;
 
 import com.lavarapido.operations.domain.event.ExecutionEvent;
 import com.lavarapido.operations.domain.event.InspectionSharedEvent;
+import com.lavarapido.operations.domain.exception.DependencyUnavailableException;
 import com.lavarapido.operations.domain.port.out.DomainEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,9 +22,11 @@ class LoggingDomainEventPublisher implements DomainEventPublisher {
                 event.type().eventName(), event.bookingId());
     }
 
+    /** OPS-08: sin RabbitMQ el cliente no recibe nada; se responde 503 en vez de decir que se avisó. */
     @Override
     public void publishInspectionShared(InspectionSharedEvent event) {
-        log.info("Domain event {} for booking {} (messaging disabled, not published)",
+        log.warn("Domain event {} for booking {} not published: messaging is disabled",
                 InspectionSharedEvent.EVENT_NAME, event.bookingId());
+        throw new DependencyUnavailableException("NOTIFICATION_NOT_SENT", "Messaging is disabled: the client cannot be notified");
     }
 }
