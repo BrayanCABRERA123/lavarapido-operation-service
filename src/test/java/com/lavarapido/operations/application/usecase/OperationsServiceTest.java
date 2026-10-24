@@ -184,7 +184,31 @@ class OperationsServiceTest {
         given(executions.findByOperator(3)).willReturn(List.of());
 
         assertEquals(ExecutionStatus.IN_PROGRESS, service.start(50L, OPERATOR_USER).status());
-        verify(bookings).advance(50L, "IN_PROGRESS");
+        // OPS-01: la ejecución queda escrita en la base antes de mover la reserva
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions, bookings);
+        order.verify(executions).saveAll(any(), eq(OPERATOR_USER));
+        order.verify(executions).flush();
+        order.verify(bookings).advance(50L, "IN_PROGRESS");
+    }
+
+    @Test
+    @DisplayName("OPS-01: si booking falla al terminar, la operación falla entera y no se avisa nada")
+    void finishFailsWholeWhenBookingDoesNotAnswer() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+        org.mockito.BDDMockito.willThrow(new com.lavarapido.operations.domain.exception.DependencyUnavailableException(
+                "BOOKING_SERVICE_UNAVAILABLE", "down")).given(bookings).advance(50L, "COMPLETED");
+
+        assertThrows(com.lavarapido.operations.domain.exception.DependencyUnavailableException.class,
+                () -> service.finish(50L, OPERATOR_USER));
+
+        // la ejecución se escribió antes de llamar a booking: la excepción deshace la transacción completa
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(executions, bookings);
+        order.verify(executions).saveAll(any(), eq(OPERATOR_USER));
+        order.verify(executions).flush();
+        order.verify(bookings).advance(50L, "COMPLETED");
+        verify(events, never()).publish(any());
     }
 
     @Test

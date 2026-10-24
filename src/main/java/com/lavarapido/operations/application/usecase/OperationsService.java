@@ -465,8 +465,11 @@ public class OperationsService implements OperationsUseCase {
             throw new ConflictException("OPERATOR_BUSY", "Finish the service in progress first");
         }
         lines.forEach(line -> line.start(now));
-        bookings.advance(booking.id(), "IN_PROGRESS");
+        // OPS-01: primero la ejecución (escrita en la base) y después la reserva. Si booking falla, la
+        // transacción se deshace entera y el operario puede volver a intentarlo sin quedar bloqueado
         executions.saveAll(lines, operatorUserId);
+        executions.flush();
+        bookings.advance(booking.id(), "IN_PROGRESS");
         events.publish(new ExecutionEvent(ExecutionEvent.Type.SERVICE_STARTED, booking.id(), booking.code(),
                 booking.ownerUserId(), operatorUserId, booking.scheduledStart(), now));
         return serviceView(booking, lines, clientNameOf(booking, new HashMap<>()));
@@ -479,8 +482,10 @@ public class OperationsService implements OperationsUseCase {
         List<ServiceExecution> lines = myLines(booking, operator);
         Instant now = clock.instant();
         lines.forEach(line -> line.finish(now));
-        bookings.advance(booking.id(), "COMPLETED");
+        // OPS-01: igual que al iniciar, la ejecución va antes que la reserva
         executions.saveAll(lines, operatorUserId);
+        executions.flush();
+        bookings.advance(booking.id(), "COMPLETED");
         events.publish(new ExecutionEvent(ExecutionEvent.Type.SERVICE_COMPLETED, booking.id(), booking.code(),
                 booking.ownerUserId(), operatorUserId, booking.scheduledStart(), now));
         return serviceView(booking, lines, clientNameOf(booking, new HashMap<>()));

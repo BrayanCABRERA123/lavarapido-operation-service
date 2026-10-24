@@ -23,4 +23,10 @@ public interface ExecutionRepository {
     List<ServiceExecution> findRated(int operatorId);
 
     List<ServiceExecution> saveAll(List<ServiceExecution> executions, long actor);
+
+    /**
+     * Escribe en la base lo guardado en esta transacción (sin confirmarla). Se usa antes de llamar a
+     * booking-service: si la base rechaza el cambio, la reserva no se mueve (OPS-01).
+     */
+    void flush();
 }

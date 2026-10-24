@@ -101,12 +101,17 @@ public class FollowUpService implements FollowUpUseCase {
         }
         List<ServiceExecution> open = lines.stream().filter(line -> line.status() != ExecutionStatus.COMPLETED).toList();
         open.forEach(ServiceExecution::closeAsAttended);
-        // booking solo avanza paso a paso: CONFIRMED -> IN_PROGRESS -> COMPLETED
-        if (reason.get() == Reason.NOT_STARTED) {
-            bookings.advance(booking.id(), "IN_PROGRESS");
-        }
-        bookings.advance(booking.id(), "COMPLETED");
+        // OPS-01: las líneas se escriben antes de mover la reserva (si booking falla, se deshace todo)
         executions.saveAll(open, adminId);
+        executions.flush();
+        // una reserva que booking ya tiene COMPLETED solo necesita cerrar sus líneas
+        if (!"COMPLETED".equals(booking.status())) {
+            // booking solo avanza paso a paso: CONFIRMED -> IN_PROGRESS -> COMPLETED
+            if (reason.get() == Reason.NOT_STARTED) {
+                bookings.advance(booking.id(), "IN_PROGRESS");
+            }
+            bookings.advance(booking.id(), "COMPLETED");
+        }
         // sin ServiceCompleted: al cliente le diría "ya puedes recogerlo" horas después
     }
 

@@ -1,5 +1,6 @@
 package com.lavarapido.operations.infrastructure.adapter.out.booking;
 
+import com.lavarapido.operations.domain.exception.ConflictException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,7 +15,9 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("BookingServiceDirectory (llamadas a booking-service)")
 class BookingServiceDirectoryTest {
@@ -22,6 +25,9 @@ class BookingServiceDirectoryTest {
     private static final String KEY = "llave-de-prueba";
 
     private final Map<String, String> keyByRequest = new ConcurrentHashMap<>();
+    // lo que responde el booking falso: estado HTTP del PATCH y estado de la reserva en el GET
+    private volatile int patchStatus = 200;
+    private volatile String bookingStatus = "IN_PROGRESS";
     private HttpServer server;
     private BookingServiceDirectory directory;
 
@@ -31,10 +37,11 @@ class BookingServiceDirectoryTest {
         server.createContext("/", exchange -> {
             String request = exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath();
             keyByRequest.put(request, String.valueOf(exchange.getRequestHeaders().getFirst("X-Internal-Key")));
-            byte[] body = (request.endsWith("/operator/bookings") ? "[]" : "{\"id\":5,\"status\":\"IN_PROGRESS\"}")
-                    .getBytes(StandardCharsets.UTF_8);
+            int status = "PATCH".equals(exchange.getRequestMethod()) ? patchStatus : 200;
+            byte[] body = (request.endsWith("/operator/bookings") ? "[]"
+                    : "{\"id\":5,\"status\":\"" + bookingStatus + "\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
+            exchange.sendResponseHeaders(status, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
         });
@@ -58,5 +65,26 @@ class BookingServiceDirectoryTest {
         assertEquals(KEY, keyByRequest.get("GET /api/v1/operator/bookings/5"));
         assertEquals(KEY, keyByRequest.get("GET /api/v1/operator/bookings"));
         assertEquals(KEY, keyByRequest.get("PATCH /api/v1/operator/bookings/5/status"));
+    }
+
+    @Test
+    @DisplayName("OPS-01: 409 al avanzar, pero la reserva ya está en ese estado: el paso se da por hecho")
+    void conflictButAlreadyThereCountsAsDone() {
+        patchStatus = 409;
+        bookingStatus = "COMPLETED";
+
+        assertDoesNotThrow(() -> directory.advance(5L, "COMPLETED"));
+        // se volvió a leer la reserva para comprobarlo
+        assertEquals(KEY, keyByRequest.get("GET /api/v1/operator/bookings/5"));
+    }
+
+    @Test
+    @DisplayName("OPS-01: 409 y la reserva está en otro estado (cancelada): sigue siendo un conflicto")
+    void conflictInAnotherStateIsStillAConflict() {
+        patchStatus = 409;
+        bookingStatus = "CANCELLED";
+
+        ConflictException error = assertThrows(ConflictException.class, () -> directory.advance(5L, "COMPLETED"));
+        assertEquals("BOOKING_STATE_CONFLICT", error.code());
     }
 }

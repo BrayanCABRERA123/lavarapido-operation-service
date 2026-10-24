@@ -100,6 +100,11 @@ class ExecutionPersistenceAdapter implements ExecutionRepository {
         return saved;
     }
 
+    @Override
+    public void flush() {
+        executions.flush();
+    }
+
     private static ServiceExecution toDomain(ServiceExecutionJpaEntity e) {
         ServiceExecution execution = ServiceExecution.restore(e.getId(), e.getBookingServiceId(), e.getOperatorId(),
                 ExecutionStatus.ofId(e.getStatusId()), e.getStartedAt(), e.getFinishedAt(), e.getRating(),
