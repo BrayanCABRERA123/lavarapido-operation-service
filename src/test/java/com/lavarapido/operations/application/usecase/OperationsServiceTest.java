@@ -188,6 +188,37 @@ class OperationsServiceTest {
     }
 
     @Test
+    @DisplayName("F-05: al terminar, las lineas quedan COMPLETED, la reserva avanza y el cliente se entera")
+    void operatorFinishes() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("IN_PROGRESS")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true),
+                ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+
+        assertEquals(ExecutionStatus.COMPLETED, service.finish(50L, OPERATOR_USER).status());
+
+        verify(bookings).advance(50L, "COMPLETED");
+        ArgumentCaptor<ExecutionEvent> event = ArgumentCaptor.forClass(ExecutionEvent.class);
+        verify(events).publish(event.capture());
+        assertEquals(ExecutionEvent.Type.SERVICE_COMPLETED, event.getValue().type());
+    }
+
+    @Test
+    @DisplayName("F-05: no se termina un servicio sin empezar ni uno de otro operario")
+    void cannotFinishWhatIsNotStartedOrNotMine() {
+        given(bookings.forOperator(50L)).willReturn(Optional.of(booking("CONFIRMED")));
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
+        assertEquals("EXECUTION_NOT_STARTED",
+                assertThrows(ConflictException.class, () -> service.finish(50L, OPERATOR_USER)).code());
+
+        given(executions.findByLineIds(any())).willReturn(List.of(
+                ServiceExecution.restore(1L, 500L, 9, ExecutionStatus.IN_PROGRESS, NOW, null, null, null, null, true)));
+        assertThrows(NotFoundException.class, () -> service.finish(50L, OPERATOR_USER));
+        verify(bookings, never()).advance(anyLong(), any());
+    }
+
+    @Test
     @DisplayName("el operario ve el primer nombre del cliente en sus servicios, no la placa")
     void servicesShowTheClientsFirstName() {
         given(executions.findByOperator(3)).willReturn(List.of(
