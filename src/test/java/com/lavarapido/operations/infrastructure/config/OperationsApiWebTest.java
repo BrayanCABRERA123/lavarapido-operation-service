@@ -164,6 +164,37 @@ class OperationsApiWebTest {
     }
 
     @Test
+    void databaseDownIs503AndOnlyRealConflictsAre409() throws Exception {
+        // E-18: base caída o sin conexión: 503, no "conflicto"
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.DataAccessResourceFailureException("connection refused"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DATABASE_UNAVAILABLE"));
+
+        org.mockito.BDDMockito.willThrow(new org.springframework.transaction.CannotCreateTransactionException("no connection"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isServiceUnavailable());
+
+        // un índice único o un bloqueo de otra transacción sí son conflictos
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.DataIntegrityViolationException("uq_service_execution_booking_service"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.CannotAcquireLockException("deadlock"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
     void ratingIsValidated() throws Exception {
         mvc.perform(post("/api/v1/ratings/50").header("Authorization", token(7L, "CLIENT"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"rating\":9}"))

@@ -7,7 +7,13 @@ import com.lavarapido.operations.domain.exception.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.TransientDataAccessResourceException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -40,12 +46,32 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * Los indices unicos y los triggers de la base son la ultima red (por ejemplo, dos ausencias
-     * cruzadas del mismo operario, tr_operator_absence_overlap). Si saltan es 409, no 500.
+     * cruzadas del mismo operario, tr_operator_absence_overlap). Si saltan es 409, no 500. Tambien es
+     * 409 cuando otra transaccion tenia las mismas filas (bloqueo o deadlock): reintentar sirve.
      */
-    @ExceptionHandler({DataIntegrityViolationException.class, DataAccessException.class})
+    @ExceptionHandler({DataIntegrityViolationException.class, PessimisticLockingFailureException.class,
+            OptimisticLockingFailureException.class})
     ProblemDetail handleDataConflict(DataAccessException exception) {
         log.warn("Database rejected the change: {}", exception.getMostSpecificCause().getMessage());
         return problem(HttpStatus.CONFLICT, "CONFLICT", "The data conflicts with an existing record");
+    }
+
+    /**
+     * E-18 (OPS-12): la base no responde (caida, sin conexion, tiempo de espera). No es un conflicto de
+     * datos: 503 DATABASE_UNAVAILABLE, para que la pantalla diga "intenta en un momento".
+     */
+    @ExceptionHandler({DataAccessResourceFailureException.class, TransientDataAccessResourceException.class,
+            QueryTimeoutException.class, CannotCreateTransactionException.class})
+    ProblemDetail handleDatabaseDown(Exception exception) {
+        log.error("Database is not available: {}", exception.getMessage());
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE", "The database is not available");
+    }
+
+    /** Cualquier otro error de la base es un fallo del servidor (500), no un conflicto. */
+    @ExceptionHandler(DataAccessException.class)
+    ProblemDetail handleDataError(DataAccessException exception) {
+        log.error("Unexpected database error", exception);
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred");
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
