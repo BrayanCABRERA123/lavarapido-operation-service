@@ -24,11 +24,13 @@ import com.lavarapido.operations.domain.service.AutoAssignmentPolicy;
 import com.lavarapido.operations.domain.service.OperatorMetricsCalculator;
 import com.lavarapido.operations.domain.service.StartPolicy;
 import com.lavarapido.operations.domain.service.TeamSummaryCalculator;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -70,9 +72,12 @@ public class OperationsService implements OperationsUseCase {
     private final DomainEventPublisher events;
     private final Clock clock;
     private final ZoneId zone;
+    // A-12: hasta cuánto después de la hora de fin se puede iniciar un servicio (StartPolicy)
+    private final Duration startLateLimit;
 
     public OperationsService(OperatorRepository operators, ExecutionRepository executions, BookingDirectory bookings,
-                             UserDirectory users, DomainEventPublisher events, Clock clock, ZoneId zone) {
+                             UserDirectory users, DomainEventPublisher events, Clock clock, ZoneId zone,
+                             @Value("${app.start.late-limit:PT4H}") Duration startLateLimit) {
         this.operators = operators;
         this.executions = executions;
         this.bookings = bookings;
@@ -80,6 +85,7 @@ public class OperationsService implements OperationsUseCase {
         this.events = events;
         this.clock = clock;
         this.zone = zone;
+        this.startLateLimit = startLateLimit;
     }
 
     // ================================================================== admin
@@ -500,8 +506,8 @@ public class OperationsService implements OperationsUseCase {
         operators.lock(operator.id());
         List<ServiceExecution> lines = myLines(booking, operator);
         Instant now = clock.instant();
-        // no se inicia una reserva de otro día u otra hora: solo desde 15 minutos antes
-        StartPolicy.check(booking, now);
+        // no se inicia una reserva de otro día u otra hora: desde 15 minutos antes y hasta el límite (A-12)
+        StartPolicy.check(booking, now, startLateLimit);
         // no puede llevar dos lavados a la vez (lo garantiza el bloqueo de arriba)
         boolean busy = executions.findByOperator(operator.id()).stream()
                 .anyMatch(e -> e.status() == ExecutionStatus.IN_PROGRESS && !booking.lineIds().contains(e.bookingServiceId()));
@@ -663,11 +669,11 @@ public class OperationsService implements OperationsUseCase {
         return ExecutionStatus.PENDING;
     }
 
-    private static OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines,
-                                                   String clientName) {
+    private OperatorServiceView serviceView(BookingSnapshot booking, List<ServiceExecution> lines, String clientName) {
         ServiceExecution first = lines.getFirst();
         return new OperatorServiceView(booking, statusOf(lines), first.startedAt(), first.finishedAt(), first.rating(),
-                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking), clientName);
+                first.commentVisible() ? first.comment() : null, StartPolicy.startableAt(booking), clientName,
+                StartPolicy.startableUntil(booking, startLateLimit));
     }
 
     private static RatingView ratingView(BookingSnapshot booking, ServiceExecution execution, String operatorName,

@@ -65,7 +65,7 @@ class OperationsServiceTest {
     @BeforeEach
     void setUp() {
         service = new OperationsService(operators, executions, bookings, users, events,
-                Clock.fixed(NOW, ZoneOffset.UTC), ZoneId.of("America/Bogota"));
+                Clock.fixed(NOW, ZoneOffset.UTC), ZoneId.of("America/Bogota"), java.time.Duration.ofHours(4));
         given(executions.saveAll(any(), anyLong())).willAnswer(invocation -> invocation.getArgument(0));
         // OPS-03: la lectura bloqueada devuelve lo mismo que la normal, salvo que la prueba diga otra cosa
         given(executions.lockByLineIds(any())).willAnswer(invocation -> executions.findByLineIds(invocation.getArgument(0)));
@@ -225,7 +225,10 @@ class OperationsServiceTest {
                 ServiceExecution.restore(2L, 501L, 3, ExecutionStatus.PENDING, null, null, null, null, null, true)));
         given(executions.findByOperator(3)).willReturn(List.of());
 
-        assertEquals(ExecutionStatus.IN_PROGRESS, service.start(50L, OPERATOR_USER).status());
+        OperationsUseCase.OperatorServiceView started = service.start(50L, OPERATOR_USER);
+        assertEquals(ExecutionStatus.IN_PROGRESS, started.status());
+        // A-12: la pantalla recibe hasta cuándo se puede iniciar (fin 15:00Z + 4 h)
+        assertEquals(Instant.parse("2026-10-05T19:00:00Z"), started.startableUntil());
         // OPS-03: primero se bloquea al operario y sus líneas, después se mira si está ocupado
         org.mockito.InOrder locks = org.mockito.Mockito.inOrder(operators, executions);
         locks.verify(operators).lock(3);

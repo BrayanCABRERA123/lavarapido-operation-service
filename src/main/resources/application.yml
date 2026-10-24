@@ -82,6 +82,10 @@ app:
   # false: el administrador asigna a mano, como antes
   auto-assign:
     enabled: ${AUTO_ASSIGN_ENABLED:true}
+  # A-12: el operario inicia un servicio desde 15 minutos antes de la hora de la reserva y hasta este
+  # tiempo después de la hora de fin (SERVICE_TOO_LATE); pasado eso lo cierra el admin desde "Por cerrar"
+  start:
+    late-limit: ${START_LATE_LIMIT:PT4H}
   security-service:
     # nombre y contacto de los operarios (solo con token de admin)
     base-url: ${SECURITY_SERVICE_URL:http://localhost:3001/api/v1}
