@@ -1,6 +1,7 @@
 package com.lavarapido.operations.application.usecase;
 
 import com.lavarapido.operations.domain.exception.ConflictException;
+import com.lavarapido.operations.domain.exception.DependencyUnavailableException;
 import com.lavarapido.operations.domain.exception.InvalidValueException;
 import com.lavarapido.operations.domain.exception.NotFoundException;
 import com.lavarapido.operations.domain.model.BookingSnapshot;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -107,6 +109,39 @@ class InspectionServiceTest {
         report.publish(NOW);
         service.share(7L, ADMIN);
         verify(events).publishInspectionShared(any());
+    }
+
+    @Test
+    @DisplayName("OPS-08: si el aviso no se pudo publicar, compartir falla con 503 en vez de decir que se envió")
+    void shareFailsWhenTheEventIsNotPublished() {
+        BookingSnapshot booking = booking(180, "IN_PROGRESS");
+        InspectionReport report = InspectionReport.start(booking, "token-publico", NOW);
+        report.publish(NOW);
+        given(bookings.forAdmin(7L)).willReturn(Optional.of(booking));
+        given(inspections.findByBooking(7L)).willReturn(Optional.of(report));
+        willThrow(new DependencyUnavailableException("NOTIFICATION_NOT_SENT", "RabbitMQ is down"))
+                .given(events).publishInspectionShared(any());
+
+        DependencyUnavailableException error = assertThrows(DependencyUnavailableException.class,
+                () -> service.share(7L, ADMIN));
+        assertEquals("NOTIFICATION_NOT_SENT", error.code());
+    }
+
+    @Test
+    @DisplayName("una reserva sin cuenta de cliente no se comparte (no hay a quién avisar)")
+    void shareNeedsAClientAccount() {
+        Instant start = Instant.parse("2026-10-14T14:00:00Z");
+        BookingSnapshot withoutClient = new BookingSnapshot(8, "RES-000008", "IN_PROGRESS", LocalDate.of(2026, 10, 14),
+                LocalTime.of(9, 0), LocalTime.of(12, 0), start, start.plusSeconds(3 * 3600), null, "Mazda 3", "ABC-123",
+                new BigDecimal("120000"), List.of(new BookingSnapshot.Line(80, "Full")), null);
+        InspectionReport report = InspectionReport.start(withoutClient, "token", NOW);
+        report.publish(NOW);
+        given(bookings.forAdmin(8L)).willReturn(Optional.of(withoutClient));
+        given(inspections.findByBooking(8L)).willReturn(Optional.of(report));
+
+        assertEquals("BOOKING_WITHOUT_CLIENT",
+                assertThrows(InvalidValueException.class, () -> service.share(8L, ADMIN)).code());
+        verify(events, never()).publishInspectionShared(any());
     }
 
     @Test
