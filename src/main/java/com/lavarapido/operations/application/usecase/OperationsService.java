@@ -263,7 +263,7 @@ public class OperationsService implements OperationsUseCase {
         }
         List<ServiceExecution> sameDayExecutions = executionsOf(sameDay);
         // E-12: una reprogramación conserva al operario solo si todavía puede a la hora nueva (turno,
-        // ausencias, cruces y cuenta activa); si no, pasa a uno libre. Sin nadie libre se queda como estaba.
+        // ausencias, cruces y cuenta activa); si no, pasa a uno libre. Sin nadie libre queda sin operario.
         Integer previous = current.isEmpty() ? null : current.getFirst().operatorId();
         if (previous != null && stillFits(team, previous, booking, busyWith(sameDay, sameDayExecutions, previous),
                 activeAccounts)) {
@@ -282,6 +282,9 @@ public class OperationsService implements OperationsUseCase {
         }
         Optional<Integer> chosen = AutoAssignmentPolicy.choose(free, preferredOperatorId);
         if (chosen.isEmpty()) {
+            if (previous != null) {
+                unassign(booking, current, previous, team, customerUserId);
+            }
             return Optional.empty();
         }
         Operator operator = requireOperator(chosen.get());
@@ -295,6 +298,20 @@ public class OperationsService implements OperationsUseCase {
         events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_ASSIGNED, booking.id(), booking.code(),
                 customerUserId, operator.userId(), booking.scheduledStart(), clock.instant()));
         return Optional.of(new AssignmentView(booking.id(), operator.id(), "", ExecutionStatus.PENDING, booking.bay(), null));
+    }
+
+    /**
+     * E-12: el operario que tenía la reserva ya no puede a la hora nueva y nadie más está libre. En vez
+     * de dejársela a quien no la puede atender, la reserva queda sin operario (sale en "Sin asignar") y
+     * notification-service avisa al operario y a los administradores (OperatorUnassigned).
+     */
+    private void unassign(BookingSnapshot booking, List<ServiceExecution> current, int previous, List<Operator> team,
+                          Long customerUserId) {
+        executions.deletePending(current);
+        Long previousUserId = team.stream().filter(operator -> operator.id() == previous).map(Operator::userId)
+                .findFirst().orElse(null);
+        events.publish(new ExecutionEvent(ExecutionEvent.Type.OPERATOR_UNASSIGNED, booking.id(), booking.code(),
+                customerUserId, previousUserId, booking.scheduledStart(), clock.instant()));
     }
 
     /**
