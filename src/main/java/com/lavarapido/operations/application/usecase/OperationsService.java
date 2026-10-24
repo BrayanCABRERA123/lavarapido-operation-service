@@ -313,9 +313,13 @@ public class OperationsService implements OperationsUseCase {
                 && activeAccounts.getOrDefault(operatorId, false);
     }
 
-    /** La cuenta en security sigue activa; si no se pudo leer, se asume que sí (no se frena la asignación). */
+    /**
+     * La cuenta en security sigue activa. A-13: si security no responde, falla cerrado (503
+     * SECURITY_SERVICE_UNAVAILABLE) en vez de suponer que sí: una cuenta desactivada no recibe servicios.
+     * La manual se reintenta con un clic y la automática la reintenta RabbitMQ (OPS-04).
+     */
     private boolean accountActive(Operator operator) {
-        return users.contactOf(operator.userId()).map(UserDirectory.ContactSnapshot::active).orElse(true);
+        return users.accountActive(operator.userId());
     }
 
     @Override
