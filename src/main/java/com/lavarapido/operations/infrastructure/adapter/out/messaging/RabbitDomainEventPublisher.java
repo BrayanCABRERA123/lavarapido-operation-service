@@ -15,6 +15,7 @@ import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -40,6 +41,8 @@ import java.util.concurrent.TimeoutException;
  * en vez de perderse en silencio.
  */
 @Component
+// @Primary solo desambigua para el analisis estatico: la pareja con @ConditionalOnProperty opuesta nunca se carga a la vez
+@Primary
 @ConditionalOnProperty(prefix = "app.messaging", name = "enabled", havingValue = "true")
 class RabbitDomainEventPublisher implements DomainEventPublisher {
 
