@@ -107,6 +107,23 @@ class OperationsApiWebTest {
     }
 
     @Test
+    void theOperatorServiceCarriesTheAdminNotes() throws Exception {
+        var booking = new com.lavarapido.operations.domain.model.BookingSnapshot(50L, "RES-000050", "CONFIRMED",
+                java.time.LocalDate.of(2026, 10, 5), java.time.LocalTime.of(9, 0), java.time.LocalTime.of(10, 0),
+                Instant.parse("2026-10-05T14:00:00Z"), Instant.parse("2026-10-05T15:00:00Z"), 7L, "Mazda 3", "ABC-123",
+                java.math.BigDecimal.TEN, List.of(), null);
+        given(operations.myServices(any(), any(), anyLong())).willReturn(List.of(new OperationsUseCase.OperatorServiceView(
+                booking, com.lavarapido.operations.domain.model.ExecutionStatus.PENDING, null, null, null, null,
+                Instant.parse("2026-10-05T13:45:00Z"), "Carla", Instant.parse("2026-10-05T19:00:00Z"), "Llevar cera extra")));
+
+        // B-01: el operario recibe las notas en el campo notes; A-12: y hasta cuándo puede iniciar
+        mvc.perform(get("/api/v1/operator/services").header("Authorization", token(30L, "OPERATOR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].notes").value("Llevar cera extra"))
+                .andExpect(jsonPath("$[0].startableUntil").value("2026-10-05T19:00:00Z"));
+    }
+
+    @Test
     void inspectionIsForTheAdminAndTheLinkIsPublic() throws Exception {
         given(inspections.forBooking(anyLong())).willReturn(new InspectionView(true, true, null));
         given(inspections.published("no-existe")).willThrow(new NotFoundException("INSPECTION_NOT_FOUND", "none"));
@@ -137,13 +154,44 @@ class OperationsApiWebTest {
 
     @Test
     void businessErrorsCarryTheirCode() throws Exception {
-        given(operations.assign(anyLong(), anyInt(), anyLong()))
+        given(operations.assign(anyLong(), anyInt(), anyLong(), any()))
                 .willThrow(new ConflictException("OPERATOR_BUSY", "busy"));
 
         mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OPERATOR_BUSY"));
+    }
+
+    @Test
+    void databaseDownIs503AndOnlyRealConflictsAre409() throws Exception {
+        // E-18: base caída o sin conexión: 503, no "conflicto"
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.DataAccessResourceFailureException("connection refused"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DATABASE_UNAVAILABLE"));
+
+        org.mockito.BDDMockito.willThrow(new org.springframework.transaction.CannotCreateTransactionException("no connection"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isServiceUnavailable());
+
+        // un índice único o un bloqueo de otra transacción sí son conflictos
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.DataIntegrityViolationException("uq_service_execution_booking_service"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        org.mockito.BDDMockito.willThrow(new org.springframework.dao.CannotAcquireLockException("deadlock"))
+                .given(operations).assign(anyLong(), anyInt(), anyLong(), any());
+        mvc.perform(put("/api/v1/admin/assignments/50").header("Authorization", token(1L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatorId\":3}"))
+                .andExpect(status().isConflict());
     }
 
     @Test

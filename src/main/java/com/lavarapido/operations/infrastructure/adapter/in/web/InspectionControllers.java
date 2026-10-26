@@ -106,7 +106,10 @@ final class InspectionControllers {
             return InspectionResponse.from(inspections.publish(bookingId, AuthenticatedUser.userId(jwt)));
         }
 
-        /** Avisa al cliente (bandeja, push y correo) con el resumen y el enlace publico. */
+        /**
+         * Avisa al cliente (bandeja, push y correo) con el resumen y el enlace publico. OPS-08: 503
+         * NOTIFICATION_NOT_SENT si el aviso no se pudo publicar (RabbitMQ caido o mensajeria apagada).
+         */
         @PostMapping("/share")
         @ResponseStatus(HttpStatus.NO_CONTENT)
         void share(@AuthenticationPrincipal Jwt jwt, @PathVariable long bookingId) {

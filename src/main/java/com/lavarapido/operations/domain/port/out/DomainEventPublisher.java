@@ -8,6 +8,9 @@ public interface DomainEventPublisher {
 
     void publish(ExecutionEvent event);
 
-    /** El admin compartio el informe de inspeccion con el cliente. */
+    /**
+     * El admin compartio el informe de inspeccion con el cliente. OPS-08: se publica enseguida y con la
+     * confirmacion del broker; si no se pudo, DependencyUnavailableException NOTIFICATION_NOT_SENT (503).
+     */
     void publishInspectionShared(InspectionSharedEvent event);
 }

@@ -8,6 +8,7 @@ import com.lavarapido.operations.infrastructure.adapter.out.RestSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -89,7 +90,7 @@ class BookingServiceDirectory implements BookingDirectory {
     private void requireInternalKey() {
         if (internalKey.isEmpty()) {
             throw new DependencyUnavailableException("BOOKING_SERVICE_UNAVAILABLE",
-                    "INTERNAL_API_KEY is not set: booking-service cannot be read without a user");
+                    "INTERNAL_API_KEY is not set: booking-service cannot be reached from operations");
         }
     }
 
@@ -109,14 +110,17 @@ class BookingServiceDirectory implements BookingDirectory {
 
     @Override
     public Optional<BookingSnapshot> forOperator(long bookingId) {
-        return one(() -> get("/operator/bookings/{id}", bookingId));
+        requireInternalKey();
+        return one(() -> client.get().uri("/operator/bookings/{id}", bookingId).headers(this::asOperations)
+                .retrieve().body(BookingJson.class));
     }
 
     @Override
     public List<BookingSnapshot> forOperator(LocalDate from, LocalDate to) {
+        requireInternalKey();
         return many(() -> client.get()
                 .uri(uri -> uri.path("/operator/bookings").queryParam("date", from).queryParam("to", to).build())
-                .headers(RestSupport::authorize)
+                .headers(this::asOperations)
                 .retrieve()
                 .body(BookingJson[].class));
     }
@@ -137,14 +141,21 @@ class BookingServiceDirectory implements BookingDirectory {
 
     @Override
     public void advance(long bookingId, String status) {
+        requireInternalKey();
         try {
             client.patch()
                     .uri("/operator/bookings/{id}/status", bookingId)
-                    .headers(RestSupport::authorize)
+                    .headers(this::asOperations)
                     .body(Map.of("status", status))
                     .retrieve()
                     .toBodilessEntity();
         } catch (HttpClientErrorException e) {
+            // OPS-01: un intento anterior pudo dejar la reserva en ese estado aunque su respuesta no llegó
+            // (tiempo de espera): si ya está ahí, el paso se da por hecho
+            if (e.getStatusCode() == HttpStatus.CONFLICT && alreadyIn(bookingId, status)) {
+                log.info("Booking {} was already {}: the step is taken as done", bookingId, status);
+                return;
+            }
             // la reserva no esta en el estado que permite ese paso (cancelada, ya terminada...)
             if (e.getStatusCode() == HttpStatus.CONFLICT || e.getStatusCode() == HttpStatus.BAD_REQUEST) {
                 throw new ConflictException("BOOKING_STATE_CONFLICT", "The booking cannot move to " + status);
@@ -153,6 +164,20 @@ class BookingServiceDirectory implements BookingDirectory {
         } catch (RestClientException e) {
             throw unavailable(e);
         }
+    }
+
+    /** Vuelve a leer la reserva (la misma ruta del operario) para saber si ya está en ese estado. */
+    private boolean alreadyIn(long bookingId, String status) {
+        return forOperator(bookingId).map(booking -> status.equals(booking.status())).orElse(false);
+    }
+
+    /**
+     * Rutas del operario en booking (E-01): el token de quien llama y la llave interna. booking solo
+     * acepta estas rutas desde aquí, porque aquí se valida que la reserva esté asignada al operario.
+     */
+    private void asOperations(HttpHeaders headers) {
+        RestSupport.authorize(headers);
+        headers.set(INTERNAL_HEADER, internalKey);
     }
 
     private BookingJson get(String path, long id) {

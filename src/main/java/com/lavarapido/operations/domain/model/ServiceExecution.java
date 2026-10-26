@@ -27,6 +27,9 @@ public final class ServiceExecution {
     private boolean commentVisible;
     // cuándo se avisó que el servicio terminó sin registrarse (no iniciado o no finalizado)
     private Instant followUpNoticeAt;
+    // B-01: indicaciones del administrador al asignar (por ejemplo "llevar cera extra")
+    private String assignmentNotes;
+    private static final int MAX_ASSIGNMENT_NOTES = 300;
 
     private ServiceExecution(Long id, long bookingServiceId, int operatorId, ExecutionStatus status,
                              Instant startedAt, Instant finishedAt, Short rating, String comment,
@@ -50,6 +53,13 @@ public final class ServiceExecution {
                 null, null, null, null, null, true, null);
     }
 
+    /** B-01: asignada con las notas del administrador (vacías = sin notas). */
+    public static ServiceExecution assign(long bookingServiceId, int operatorId, String notes) {
+        ServiceExecution execution = assign(bookingServiceId, operatorId);
+        execution.assignmentNotes = cleanNotes(notes);
+        return execution;
+    }
+
     public static ServiceExecution restore(long id, long bookingServiceId, int operatorId, ExecutionStatus status,
                                            Instant startedAt, Instant finishedAt, Short rating, String comment,
                                            Instant ratedAt, boolean commentVisible) {
@@ -62,6 +72,39 @@ public final class ServiceExecution {
                                            Instant ratedAt, boolean commentVisible, Instant followUpNoticeAt) {
         return new ServiceExecution(id, bookingServiceId, operatorId, status, startedAt, finishedAt, rating,
                 comment, ratedAt, commentVisible, followUpNoticeAt);
+    }
+
+    /** Las notas guardadas (al leer de la base). */
+    public void restoreAssignmentNotes(String notes) {
+        this.assignmentNotes = notes;
+    }
+
+    /**
+     * Cambiar de operario solo mientras no ha empezado. B-01: las notas se reemplazan solo si llegan
+     * notas nuevas; sin notas (o en blanco) se conservan las que ya tenía la asignación.
+     */
+    public void reassign(int newOperatorId, String notes) {
+        String clean = cleanNotes(notes);
+        reassign(newOperatorId);
+        if (clean != null) {
+            assignmentNotes = clean;
+        }
+    }
+
+    private static String cleanNotes(String notes) {
+        if (notes == null || notes.isBlank()) {
+            return null;
+        }
+        String clean = notes.strip();
+        if (clean.length() > MAX_ASSIGNMENT_NOTES) {
+            throw new InvalidValueException("INVALID_ASSIGNMENT_NOTES",
+                    "The assignment notes can have at most " + MAX_ASSIGNMENT_NOTES + " characters");
+        }
+        return clean;
+    }
+
+    public String assignmentNotes() {
+        return assignmentNotes;
     }
 
     /** Cambiar de operario solo mientras no ha empezado. */

@@ -58,4 +58,13 @@ class FollowUpPolicyTest {
         assertEquals(Optional.empty(), FollowUpPolicy.of(booking("NO_SHOW"), line(ExecutionStatus.PENDING), END.plus(HOUR), HOUR));
         assertEquals(Optional.empty(), FollowUpPolicy.of(booking("CANCELLED"), List.of(), END.plus(HOUR), HOUR));
     }
+
+    @Test
+    @DisplayName("OPS-01: completada en booking pero con líneas sin terminar: por cerrar desde la hora de fin")
+    void completedBookingWithLinesLeftOpen() {
+        assertEquals(Optional.of(Reason.NOT_FINISHED), FollowUpPolicy.of(booking("COMPLETED"), line(ExecutionStatus.IN_PROGRESS), END, HOUR));
+        assertEquals(Optional.of(Reason.NOT_STARTED), FollowUpPolicy.of(booking("COMPLETED"), line(ExecutionStatus.PENDING), END, HOUR));
+        assertEquals(Optional.empty(), FollowUpPolicy.of(booking("COMPLETED"), line(ExecutionStatus.IN_PROGRESS), END.minusSeconds(60), HOUR));
+        assertEquals(Optional.empty(), FollowUpPolicy.of(booking("COMPLETED"), List.of(), END.plus(HOUR), HOUR));
+    }
 }

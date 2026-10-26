@@ -16,7 +16,10 @@ public record ExecutionEvent(Type type, long bookingId, String bookingCode, Long
         SERVICE_COMPLETED("ServiceCompleted", "execution.service_completed"),
         // terminó la hora y nadie lo registró: se avisa al operario y a los administradores
         SERVICE_NOT_STARTED("ServiceNotStarted", "execution.service_not_started"),
-        SERVICE_NOT_FINISHED("ServiceNotFinished", "execution.service_not_finished");
+        SERVICE_NOT_FINISHED("ServiceNotFinished", "execution.service_not_finished"),
+        // E-12: al reprogramar, el operario ya no puede y nadie más está libre: la reserva queda sin
+        // operario. operatorUserId es el operario que la tenía
+        OPERATOR_UNASSIGNED("OperatorUnassigned", "execution.operator_unassigned");
 
         private final String eventName;
         private final String routingKey;

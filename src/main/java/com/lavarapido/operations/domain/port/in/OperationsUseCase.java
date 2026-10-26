@@ -34,7 +34,7 @@ public interface OperationsUseCase {
      * cambia reserva por reserva; esto es lo que permite ver "quien esta en cual bahia ahora".
      */
     record AssignmentView(long bookingId, int operatorId, String operatorName, ExecutionStatus status,
-                          BookingSnapshot.Bay bay) {
+                          BookingSnapshot.Bay bay, String notes) {
     }
 
     /**
@@ -48,9 +48,11 @@ public interface OperationsUseCase {
     /** Servicio de un operario: la reserva y el estado de su ejecucion. */
     /** startableAt: desde cuándo se puede iniciar (StartPolicy, 15 minutos antes de la reserva). */
     /** clientName: primer nombre del cliente, como en las calificaciones (vacío si no se pudo leer). */
+    /** startableUntil: hasta cuándo se puede iniciar (A-12, la hora de fin más app.start.late-limit). */
+    /** notes: las indicaciones del administrador al asignar (B-01); null si no dejó ninguna. */
     record OperatorServiceView(BookingSnapshot booking, ExecutionStatus status, Instant startedAt,
                                Instant finishedAt, Short rating, String comment, Instant startableAt,
-                               String clientName) {
+                               String clientName, Instant startableUntil, String notes) {
     }
 
     /** Calificacion de una reserva (todas sus lineas tienen la misma). */
@@ -109,7 +111,8 @@ public interface OperationsUseCase {
     void removeAbsence(int operatorId, int absenceId, long adminId);
 
     /** Asigna (o cambia) el operario de todas las lineas de la reserva (RF-008/009). */
-    AssignmentView assign(long bookingId, int operatorId, long adminId);
+    /** notes: indicaciones del administrador para el operario (B-01, opcional, hasta 300 caracteres). */
+    AssignmentView assign(long bookingId, int operatorId, long adminId, String notes);
 
     /** Todos los operarios con su disponibilidad real para esa reserva (mismas reglas que assign). */
     List<CandidateView> candidates(long bookingId);

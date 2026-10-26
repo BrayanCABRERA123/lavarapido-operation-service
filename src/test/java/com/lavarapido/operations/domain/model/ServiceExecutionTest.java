@@ -82,4 +82,26 @@ class ServiceExecutionTest {
         assertNull(forgotten.finishedAt());
         assertThrows(ConflictException.class, forgotten::closeAsAttended);
     }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("B-01: las notas se guardan recortadas; al reasignar se conservan salvo que lleguen nuevas")
+    void assignmentNotesAreKept() {
+        ServiceExecution execution = ServiceExecution.assign(500L, 3, "  Llevar cera extra  ");
+        org.junit.jupiter.api.Assertions.assertEquals("Llevar cera extra", execution.assignmentNotes());
+
+        // reasignar sin notas (o en blanco) no borra las que ya tenía
+        execution.reassign(4, "   ");
+        org.junit.jupiter.api.Assertions.assertEquals(4, execution.operatorId());
+        org.junit.jupiter.api.Assertions.assertEquals("Llevar cera extra", execution.assignmentNotes());
+        execution.reassign(3, null);
+        org.junit.jupiter.api.Assertions.assertEquals("Llevar cera extra", execution.assignmentNotes());
+
+        // con notas nuevas se reemplazan
+        execution.reassign(4, "Cliente con prisa");
+        org.junit.jupiter.api.Assertions.assertEquals("Cliente con prisa", execution.assignmentNotes());
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.lavarapido.operations.domain.exception.InvalidValueException.class,
+                () -> ServiceExecution.assign(500L, 3, "x".repeat(301)));
+    }
 }

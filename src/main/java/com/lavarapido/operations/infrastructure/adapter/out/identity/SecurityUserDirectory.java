@@ -1,5 +1,6 @@
 package com.lavarapido.operations.infrastructure.adapter.out.identity;
 
+import com.lavarapido.operations.domain.exception.DependencyUnavailableException;
 import com.lavarapido.operations.domain.port.out.UserDirectory;
 import com.lavarapido.operations.infrastructure.adapter.out.RestSupport;
 import org.slf4j.Logger;
@@ -11,6 +12,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -24,6 +26,8 @@ class SecurityUserDirectory implements UserDirectory {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityUserDirectory.class);
     private static final int PAGE_SIZE = 100;
+    // tope de páginas por si security respondiera siempre lo mismo (10.000 operarios)
+    private static final int MAX_PAGES = 100;
 
     private final RestClient client;
     // contacto interno (/internal/v1/users/{id}/contact): no pasa por el gateway y pide la llave interna
@@ -67,6 +71,31 @@ class SecurityUserDirectory implements UserDirectory {
     }
 
     @Override
+    public boolean accountActive(long userId) {
+        if (internalKey.isEmpty()) {
+            throw unavailable("INTERNAL_API_KEY is not set: the operator account cannot be checked");
+        }
+        try {
+            ContactJson contact = internal.get()
+                    .uri("/internal/v1/users/{id}/contact", userId)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(ContactJson.class);
+            return contact != null && contact.active();
+        } catch (HttpClientErrorException.NotFound e) {
+            // la cuenta ya no existe: tampoco recibe servicios
+            return false;
+        } catch (RestClientException e) {
+            log.warn("Could not check the account of user {} in security-service: {}", userId, e.getMessage());
+            throw unavailable("security-service is not available");
+        }
+    }
+
+    private static DependencyUnavailableException unavailable(String message) {
+        return new DependencyUnavailableException("SECURITY_SERVICE_UNAVAILABLE", message);
+    }
+
+    @Override
     public boolean accountMissing(long userId) {
         if (internalKey.isEmpty()) {
             return false;
@@ -86,29 +115,38 @@ class SecurityUserDirectory implements UserDirectory {
         }
     }
 
+    /** OPS-12: security entrega hasta 100 por página; se piden todas, no solo la primera. */
     @Override
     public List<UserSnapshot> operators() {
+        List<UserSnapshot> result = new ArrayList<>();
         try {
-            PageJson page = client.get()
-                    .uri(uri -> uri.path("/admin/users").queryParam("role", "OPERATOR")
-                            .queryParam("page", 0).queryParam("size", PAGE_SIZE).build())
-                    .headers(RestSupport::authorize)
-                    .retrieve()
-                    .body(PageJson.class);
-            if (page == null || page.items() == null) {
-                return List.of();
+            for (int number = 0; number < MAX_PAGES; number++) {
+                int current = number;
+                PageJson page = client.get()
+                        .uri(uri -> uri.path("/admin/users").queryParam("role", "OPERATOR")
+                                .queryParam("page", current).queryParam("size", PAGE_SIZE).build())
+                        .headers(RestSupport::authorize)
+                        .retrieve()
+                        .body(PageJson.class);
+                if (page == null || page.items() == null || page.items().isEmpty()) {
+                    break;
+                }
+                page.items().forEach(u -> result.add(new UserSnapshot(u.id(),
+                        (nullToEmpty(u.firstName()) + " " + nullToEmpty(u.lastName())).trim(),
+                        nullToEmpty(u.email()), nullToEmpty(u.phone()), u.active())));
+                // última página (o un security que no manda totalPages: se queda con la primera, como antes)
+                if (current + 1 >= page.totalPages() || page.items().size() < PAGE_SIZE) {
+                    break;
+                }
             }
-            return page.items().stream()
-                    .map(u -> new UserSnapshot(u.id(), (nullToEmpty(u.firstName()) + " " + nullToEmpty(u.lastName())).trim(),
-                            nullToEmpty(u.email()), nullToEmpty(u.phone()), u.active()))
-                    .toList();
+            return result;
         } catch (RestClientException e) {
             log.warn("Could not list operators from security-service: {}", e.getMessage());
             return List.of();
         }
     }
 
-    record PageJson(List<UserJson> items) {
+    record PageJson(List<UserJson> items, int totalPages) {
     }
 
     record UserJson(long id, String email, String firstName, String lastName, String phone, boolean active) {
